@@ -58,10 +58,10 @@ export const DealGenerator: React.FC<DealGeneratorProps> = ({ onDealGenerated })
   const [buildStepIndex, setBuildStepIndex] = useState(0);
 
   const roleplayBuildSteps = [
-    'Synthesizing target account skepticism profile & buyer psychology...',
-    'Extracting high-probability objection counter-arguments & battlecards...',
-    'Calibrating Deepgram low-latency voice model & response cadence...',
-    'Initializing interactive voice sandbox & launching buyer persona...'
+    `Committing ${generatedDealContext?.target_company || 'target client'} acute bottlenecks & pain points to Copilot vector store...`,
+    'Arming objection battlecards with winning counter-tactics & exact rebuttals...',
+    `Calibrating buyer skepticism profile for ${generatedDealContext?.target_persona?.name || 'Sarah Chen'} (${generatedDealContext?.target_persona?.title || 'VP of Sales'})...`,
+    'Copilot remembers everything and is live for your call simulation!'
   ];
 
   const steps = [
@@ -146,12 +146,24 @@ export const DealGenerator: React.FC<DealGeneratorProps> = ({ onDealGenerated })
     }
   };
 
-  // Step 2 -> Move to Persona Build with 5-Second Calibration Countdown
+  // Step 2 -> Move to Persona Build with 5-Second Copilot Memory Sync Countdown
   const handleProceedToPersona = () => {
     setIsBuildingRoleplay(true);
     setBuildProgress(0);
     setBuildCountdownSec(5.0);
     setBuildStepIndex(0);
+
+    // Trigger Copilot memory sync with backend vector store
+    if (generatedDealId || generatedDealContext) {
+      fetch('/api/copilot/sync-deal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deal_id: generatedDealId,
+          deal_context: generatedDealContext
+        })
+      }).catch(err => console.warn('Copilot sync note:', err));
+    }
 
     const startTime = Date.now();
     const duration = 5000; // 5000ms = 5.0 seconds
@@ -473,10 +485,10 @@ export const DealGenerator: React.FC<DealGeneratorProps> = ({ onDealGenerated })
                 <div className="space-y-3 max-w-xl mx-auto">
                   <div className="inline-flex items-center gap-2 px-3.5 py-1 bg-blue-950/60 border border-blue-500/30 text-blue-400 text-xs font-mono font-bold uppercase tracking-wider">
                     <span className="h-2 w-2 rounded-full bg-blue-400 animate-ping" />
-                    <span>CALIBRATING BUYER PERSONA • {buildCountdownSec.toFixed(1)}s REMAINING</span>
+                    <span>🧠 COPILOT MEMORY SYNC • {buildCountdownSec.toFixed(1)}s REMAINING</span>
                   </div>
                   <h3 className="text-2xl sm:text-4xl font-extrabold text-white">
-                    Building {generatedDealContext.target_company} Roleplay Simulation
+                    Copilot Is Remembering Everything About {generatedDealContext.target_company}
                   </h3>
                   <p className="text-sm sm:text-base text-slate-300 font-mono">
                     {roleplayBuildSteps[buildStepIndex]}
@@ -807,15 +819,21 @@ export const DealGenerator: React.FC<DealGeneratorProps> = ({ onDealGenerated })
             
             {/* Title Hero */}
             <div className="text-center space-y-3">
-              <div className="inline-flex items-center gap-2 bg-blue-950/50 px-4 py-1.5 text-xs sm:text-sm font-bold text-blue-400 border border-blue-500/30">
-                <CheckCircle2 className="h-4 w-4 text-blue-400" />
-                <span>STEP 3 OF 3 • AI BUYER PERSONA CALIBRATED</span>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <div className="inline-flex items-center gap-2 bg-blue-950/50 px-4 py-1.5 text-xs sm:text-sm font-bold text-blue-400 border border-blue-500/30">
+                  <CheckCircle2 className="h-4 w-4 text-blue-400" />
+                  <span>STEP 3 OF 3 • AI BUYER PERSONA CALIBRATED</span>
+                </div>
+                <div className="inline-flex items-center gap-2 bg-emerald-950/60 px-4 py-1.5 text-xs sm:text-sm font-mono font-bold text-emerald-400 border border-emerald-500/30">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>🧠 COPILOT MEMORY ARMED FOR {generatedDealContext.target_company.toUpperCase()}</span>
+                </div>
               </div>
               <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
                 Your AI Buyer Persona Is Ready
               </h2>
               <p className="text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed">
-                Calibrated specifically to {generatedDealContext.target_company}'s pain points, objection patterns, and skepticism profile.
+                Calibrated specifically to {generatedDealContext.target_company}'s pain points, objection patterns, and skepticism profile. Live Copilot is listening and will prompt you with winning battlecard cues.
               </p>
             </div>
 

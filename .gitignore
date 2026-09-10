@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment & Secret Keys
+.env
+.env.*
+!.env.example
+
+# Model & Vector Caches
+.cache/
+.client_rag_cache.json

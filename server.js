@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import { ingestDealDossier, queryClientRAG } from './copilot_rag.js';
 
 dotenv.config();
 
@@ -19,6 +20,81 @@ app.use(express.json({ limit: '10mb' }));
 // In-Memory Shared Deal Context & Session Stores
 const dealStore = new Map();
 const sessionStore = new Map();
+
+// --- Speech Emotion Recognition (SER) Pipeline (Lazy Loaded) ---
+let audioClassifier = null;
+let isAudioClassifierLoading = false;
+
+async function getAudioClassifier() {
+  if (audioClassifier) return audioClassifier;
+  if (isAudioClassifierLoading) return null;
+  try {
+    isAudioClassifierLoading = true;
+    console.log('[Copilot SER] Pre-loading local Speech Emotion Recognition model (onnx-community/wav2vec2-base-Speech_Emotion_Recognition-ONNX)...');
+    const { pipeline } = await import('@xenova/transformers');
+    audioClassifier = await pipeline('audio-classification', 'onnx-community/wav2vec2-base-Speech_Emotion_Recognition-ONNX', {
+      quantized: true,
+      cache_dir: path.join(__dirname, '.cache')
+    });
+    console.log('✓ [Copilot SER] Speech Emotion Recognition model loaded successfully!');
+    return audioClassifier;
+  } catch (err) {
+    console.warn('[Copilot SER] Speech emotion model note:', err.message);
+    return null;
+  } finally {
+    isAudioClassifierLoading = false;
+  }
+}
+// Start background pre-load of SER model without blocking startup
+getAudioClassifier().catch(() => {});
+
+function mapEmotionLabel(rawLabel) {
+  const upper = (rawLabel || '').toUpperCase();
+  switch (upper) {
+    case 'NEUTRAL': return 'Calm & Receptive';
+    case 'HAPPY': return 'Engaged & Enthusiastic';
+    case 'ANGRY': return 'Agitated & Challenging';
+    case 'SAD': return 'Hesitant & Guarded';
+    case 'FEAR': return 'Anxious / Risk-Averse';
+    case 'DISGUST': return 'Skeptical & Critical';
+    default: return upper ? upper.charAt(0) + upper.slice(1).toLowerCase() : 'Calm';
+  }
+}
+
+// --- Tavily Search API Client for Real-Time Competitor Intelligence ---
+async function fetchTavilySearch(query) {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey || apiKey === 'placeholder' || apiKey.length < 10) {
+    return null;
+  }
+  try {
+    console.log(`[Tavily] In-call competitor web search: "${query}"...`);
+    const response = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: query,
+        search_depth: 'basic',
+        max_results: 2
+      })
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data && Array.isArray(data.results) ? data.results : null;
+  } catch (err) {
+    console.warn('[Tavily] Search failed:', err.message);
+    return null;
+  }
+}
+
+// Helper for timed promises
+const withTimeout = (promise, ms) => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms))
+  ]);
+};
 
 // Helper to clean URLs to company names
 function extractCompanyName(urlStr) {
@@ -543,6 +619,9 @@ Return ONLY valid JSON with exact structure:
     dealContext.built_persona = builtPersona;
     dealStore.set(dealId, dealContext);
 
+    // Auto-index deal dossier into Copilot local vector store in background
+    ingestDealDossier(dealContext).catch(e => console.warn('[Copilot RAG] Auto-index warning:', e.message));
+
     return res.json({ deal_id: dealId, dealContext, persona: builtPersona });
   } catch (err) {
     console.error('Server Deal Generator error:', err);
@@ -627,74 +706,254 @@ app.get('/api/deal/:deal_id/session/:session_id', (req, res) => {
   res.json(session);
 });
 
-// 5. LIVE COPILOT CUE ENDPOINT: POST /api/copilot/cue
+// 5. COPILOT DEAL MEMORY SYNC ENDPOINT: POST /api/copilot/sync-deal
+app.post('/api/copilot/sync-deal', async (req, res) => {
+  try {
+    const { deal_id, deal_context } = req.body;
+    let deal = deal_context;
+    if (!deal && deal_id) {
+      deal = dealStore.get(deal_id);
+    }
+    if (!deal) {
+      return res.status(404).json({ error: 'Deal not found in memory store' });
+    }
+
+    // Ensure deal is persisted in dealStore
+    if (deal.deal_id) {
+      dealStore.set(deal.deal_id, deal);
+    }
+
+    // Embed and index all chunks into Copilot RAG
+    const ragResult = await ingestDealDossier(deal);
+
+    return res.json({
+      success: true,
+      deal_id: deal.deal_id,
+      target_company: deal.target_company,
+      chunks_indexed: ragResult.chunksCount,
+      objections_armed: (deal.likely_objections || []).length,
+      value_props_loaded: (deal.seller_value_propositions || []).length,
+      persona_name: deal.target_persona?.name || 'Target Buyer',
+      persona_title: deal.target_persona?.title || 'Decision Maker',
+      status: 'ready'
+    });
+  } catch (err) {
+    console.error('Error during Copilot deal sync:', err);
+    res.status(500).json({ error: 'Failed to sync deal to Copilot memory' });
+  }
+});
+
+// 6. LIVE COPILOT CUE ENDPOINT (Full 4-Tier Pipeline): POST /api/copilot/cue
 app.post('/api/copilot/cue', async (req, res) => {
   try {
-    const { deal_id, session_id, user_speech, customer_speech } = req.body;
+    const { deal_id, session_id, user_speech, customer_speech, deal_context } = req.body;
 
-    const deal = dealStore.get(deal_id);
+    const deal = dealStore.get(deal_id) || deal_context;
     const session = sessionStore.get(session_id);
 
-    const speechText = (user_speech || customer_speech || '').toLowerCase();
+    const focusText = (customer_speech || user_speech || '').trim();
+    const lowerSpeech = focusText.toLowerCase();
+
+    if (!focusText) {
+      return res.json({ cues: [] });
+    }
 
     const cues = [];
+    let detectedTone = 'Calm & Receptive';
 
-    // Check objection trigger
-    if (speechText.includes('gong') || speechText.includes('competitor') || speechText.includes('already use')) {
+    // Tier 1: Small-Talk Suppression Filter
+    const isSmallTalk = /^(hi|hello|hey|good morning|good afternoon|how are you|how's it going|doing well|thanks for having me|can you hear me|yes|yeah|sure|okay|sounds good)[!.,?]?$/i.test(lowerSpeech.trim()) ||
+      (lowerSpeech.split(' ').length <= 4 && (lowerSpeech.includes('how are you') || lowerSpeech.includes('doing well') || lowerSpeech.includes('nice to meet') || lowerSpeech.includes('thanks for reaching')));
+
+    if (isSmallTalk) {
+      const openingQuestion = deal?.discovery_questions?.[0] || '"How long does it currently take a new sales rep on your team to ramp to quota?"';
       cues.push({
-        id: `cue-${Date.now()}-1`,
+        id: `cue-smalltalk-${Date.now()}`,
         timestamp: Date.now(),
-        type: 'objection',
-        title: '⚠️ OBJECTION DETECTED: Existing Call Recording Tool',
-        description: 'Prospect mentioned using Gong or an existing sales tool.',
-        suggestedAction: 'Ask how they currently use Gong before positioning CloseIQ live co-piloting.',
-        suggestedQuestion: '"How are your reps currently getting coaching while the call is actually happening?"',
-        relatedPracticeWeakness: session?.weaknesses?.[0] || 'Struggled with competitor objection in practice roleplay',
+        type: 'discovery_question',
+        title: '🎯 OPENING DISCOVERY PIVOT',
+        description: `Prospect is warming up. Acknowledge briefly and pivot directly to uncovering their acute pain at ${deal?.target_company || 'the company'}.`,
+        suggestedAction: 'Ask opening discovery question before introducing any product features.',
+        suggestedQuestion: openingQuestion,
+        winningRebuttal: `Great to connect! Before we jump in, curious: ${openingQuestion.replace(/^"|"$/g, '')}`
       });
+      return res.json({ cues, tone: detectedTone });
     }
 
-    if (speechText.includes('cost') || speechText.includes('expensive') || speechText.includes('budget')) {
-      cues.push({
-        id: `cue-${Date.now()}-2`,
-        timestamp: Date.now(),
-        type: 'objection',
-        title: '⚠️ OBJECTION DETECTED: Budget / Pricing Concern',
-        description: 'Prospect expressed budget constraints.',
-        suggestedAction: 'Reframe pricing around rep ramp time reduction ROI.',
-        suggestedQuestion: '"If we can reduce your new rep ramp time by 3 weeks, what is that worth to your quarterly revenue goal?"',
-      });
-    }
+    // Tier 0: Reflex Objection Scanner (0ms Exact Rebuttal)
+    let matchedObjection = null;
+    if (deal && Array.isArray(deal.likely_objections)) {
+      for (const obj of deal.likely_objections) {
+        const objKeywords = (obj.title + ' ' + (obj.category || '')).toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        const hasKeywordMatch = objKeywords.some(kw => lowerSpeech.includes(kw));
+        
+        const isCompetitorMatch = (lowerSpeech.includes('gong') || lowerSpeech.includes('competitor') || lowerSpeech.includes('already use')) && 
+          (obj.category === 'competition' || obj.title.toLowerCase().includes('existing') || obj.title.toLowerCase().includes('tool'));
 
-    if (speechText.includes('feature') || speechText.includes('product') || speechText.includes('we offer')) {
-      if (session?.weaknesses?.some((w) => w.toLowerCase().includes('early') || w.toLowerCase().includes('pitch'))) {
-        cues.push({
-          id: `cue-${Date.now()}-3`,
-          timestamp: Date.now(),
-          type: 'coaching_alert',
-          title: '⚠️ PRACTICE WARNING: Pitching Too Early',
-          description: 'In your practice call, you pitched before uncovering pain. Explore pain first!',
-          suggestedAction: 'Pivot back to discovery before explaining more features.',
-          suggestedQuestion: '"Before I dive deeper into the platform, how are you handling rep onboarding today?"',
-          relatedPracticeWeakness: 'In roleplay practice, you pitched early before quantifying prospect pain.',
-        });
+        const isPricingMatch = (lowerSpeech.includes('cost') || lowerSpeech.includes('expensive') || lowerSpeech.includes('budget') || lowerSpeech.includes('price')) &&
+          (obj.category === 'pricing' || obj.title.toLowerCase().includes('budget') || obj.title.toLowerCase().includes('price'));
+
+        const isDisruptionMatch = (lowerSpeech.includes('distract') || lowerSpeech.includes('hard to use') || lowerSpeech.includes('adoption')) &&
+          (obj.category === 'complexity');
+
+        if (hasKeywordMatch || isCompetitorMatch || isPricingMatch || isDisruptionMatch) {
+          matchedObjection = obj;
+          break;
+        }
       }
     }
 
-    if (cues.length === 0) {
+    if (matchedObjection) {
+      detectedTone = 'Skeptical & Critical';
       cues.push({
-        id: `cue-${Date.now()}-4`,
+        id: `cue-reflex-${Date.now()}`,
         timestamp: Date.now(),
-        type: 'discovery_question',
-        title: '💡 RECOMMENDED DISCOVERY QUESTION',
-        description: 'Maintain discovery momentum matching your call objective.',
-        suggestedAction: 'Ask about manager bandwidth constraints.',
-        suggestedQuestion: deal?.discovery_questions?.[0] || '"How long does it currently take a new rep to become productive?"',
+        type: 'objection',
+        title: `⚠️ OBJECTION: ${matchedObjection.title.slice(0, 45)}...`,
+        description: matchedObjection.description || `Prospect is raising a ${matchedObjection.category || 'core'} objection.`,
+        winningRebuttal: matchedObjection.suggestedHandling || 'Acknowledge their setup and emphasize quantifiable ramp reduction ROI.',
+        suggestedAction: 'Deliver the winning rebuttal below immediately, then follow up with a validation question.',
+        suggestedQuestion: `"Does that make sense, or would you like to see how that works in practice?"`,
+        isReflex: true
       });
     }
 
-    res.json({ cues });
+    // Tier 2: MiniLM Client RAG Semantic Search
+    let ragChunks = [];
+    try {
+      ragChunks = await queryClientRAG(focusText, deal_id, 2);
+    } catch (ragErr) {
+      console.warn('[Copilot RAG] Query failed:', ragErr.message);
+    }
+
+    // Tavily External Competitor Search if relevant
+    let tavilyContext = '';
+    if (lowerSpeech.includes('gong') || lowerSpeech.includes('competitor') || lowerSpeech.includes('alternative')) {
+      const tavilyHits = await fetchTavilySearch(`${focusText} sales software vs real-time copilot`);
+      if (tavilyHits && tavilyHits.length > 0) {
+        tavilyContext = `EXTERNAL MARKET INTEL: ${tavilyHits.map(h => h.content).slice(0, 2).join(' ')}`;
+      }
+    }
+
+    // Tier 3: Low-Latency Groq LLM Inference (with Gemini Fallback)
+    const groqApiKey = process.env.GROQ_API_KEY?.trim();
+    const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+
+    const targetCompany = deal?.target_company || 'Target Enterprise';
+    const personaName = deal?.target_persona?.name || 'Sarah Chen';
+    const personaTitle = deal?.target_persona?.title || 'VP of Sales';
+    const winningCriteria = deal?.target_persona?.winning_criteria || 'Quantifiable ROI and minimal workflow disruption';
+    const mainPainPoint = deal?.pain_points?.[0] || 'Accelerating sales rep ramp time';
+
+    const ragFacts = ragChunks.map(c => c.parent_text).join('\n') || `Primary Pain Point: ${mainPainPoint}.`;
+
+    const copilotSystemPrompt = `You are an elite live AI Sales Copilot listening to an active call with ${targetCompany}.
+TARGET BUYER: ${personaName}, ${personaTitle}.
+BUYER SKEPTICISM & WINNING CRITERIA: ${winningCriteria}.
+PRIMARY CLIENT BOTTLENECK: ${mainPainPoint}.
+
+GROUNDED CLIENT DOSSIER & FACTS:
+${ragFacts}
+${tavilyContext}
+
+THE CALL TRANSCRIPT JUST HEARD:
+${customer_speech ? `PROSPECT: "${customer_speech}"` : ''}
+${user_speech ? `SALES REP: "${user_speech}"` : ''}
+
+TASK:
+Provide the sales rep with ONE instant, high-conversion tactical battlecard cue.
+STRICT OUTPUT FORMAT: Output ONLY valid JSON matching this schema:
+{
+  "type": "objection" | "value_prop" | "discovery_question" | "coaching_alert",
+  "title": "Short Punchy Title with Emoji (e.g. 🎯 REFRAME GONG COMPARISON)",
+  "description": "1 concise sentence explaining the tactical angle",
+  "winningRebuttal": "Exact quote for the rep to speak out loud, under 25 words",
+  "suggestedAction": "Tactical action for the rep (under 15 words)",
+  "suggestedQuestion": "High-leverage follow up question"
+}`.trim();
+
+    let llmCue = null;
+
+    if (groqApiKey && (groqApiKey.startsWith('gsk_') || groqApiKey.length > 20)) {
+      try {
+        const groqCall = fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${groqApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: copilotSystemPrompt }],
+            temperature: 0.1,
+            response_format: { type: 'json_object' },
+            max_tokens: 400
+          }),
+        });
+
+        const response = await withTimeout(groqCall, 4000);
+        if (response.ok) {
+          const resData = await response.json();
+          const jsonText = resData.choices?.[0]?.message?.content || '';
+          llmCue = JSON.parse(jsonText);
+        }
+      } catch (err) {
+        console.warn('[Copilot Groq] Inference timed out or failed, falling back to Gemini:', err.message);
+      }
+    }
+
+    if (!llmCue && geminiApiKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+        const geminiCall = ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: copilotSystemPrompt,
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+            maxOutputTokens: 500,
+          },
+        });
+
+        const response = await withTimeout(geminiCall, 4000);
+        const jsonText = response.text || '';
+        llmCue = JSON.parse(jsonText);
+      } catch (err) {
+        console.warn('[Copilot Gemini] Fallback failed:', err.message);
+      }
+    }
+
+    if (llmCue && llmCue.title && llmCue.winningRebuttal) {
+      cues.push({
+        id: `cue-llm-${Date.now()}`,
+        timestamp: Date.now(),
+        type: llmCue.type || 'value_prop',
+        title: llmCue.title,
+        description: llmCue.description,
+        winningRebuttal: llmCue.winningRebuttal,
+        suggestedAction: llmCue.suggestedAction || 'Deliver winning talking track.',
+        suggestedQuestion: llmCue.suggestedQuestion,
+        relatedPracticeWeakness: session?.weaknesses?.[0]
+      });
+    }
+
+    // Fallback if both reflex and LLM returned nothing
+    if (cues.length === 0) {
+      cues.push({
+        id: `cue-fallback-${Date.now()}`,
+        timestamp: Date.now(),
+        type: 'discovery_question',
+        title: '💡 RECOMMENDED DISCOVERY QUESTION',
+        description: `Uncover the operational bottleneck at ${targetCompany}.`,
+        suggestedAction: 'Ask about manager bandwidth constraints.',
+        suggestedQuestion: deal?.discovery_questions?.[0] || '"How long does it currently take a new rep to become productive?"',
+        winningRebuttal: `That makes complete sense. How does that currently impact your team's quarterly target?`
+      });
+    }
+
+    res.json({ cues, tone: detectedTone });
   } catch (err) {
-    console.error('Error generating copilot cue:', err);
+    console.error('Error generating Copilot cue:', err);
     res.status(500).json({ error: 'Failed to generate copilot cue' });
   }
 });

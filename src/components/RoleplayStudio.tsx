@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { Persona, DynamicState, ConversationTurn, TelemetryMetrics, TurnEvaluation, PostCallScorecard, DealContext, RoleplaySession } from '../types';
+import type { Persona, DynamicState, ConversationTurn, TelemetryMetrics, TurnEvaluation, PostCallScorecard, DealContext, RoleplaySession, CopilotCue } from '../types';
 import { BUILTIN_PERSONAS } from '../data/personas';
 import { StateEngine } from '../engine/StateEngine';
 import { PersonaEngine } from '../engine/PersonaEngine';
@@ -13,6 +13,7 @@ import { VoiceAgentOrb } from './VoiceAgentOrb';
 import { EvaluationDashboard } from './EvaluationDashboard';
 import { PersonaSelector } from './PersonaSelector';
 import { CustomPersonaModal } from './CustomPersonaModal';
+import { LiveCopilotWidget } from './LiveCopilotWidget';
 import { ArrowRight, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
 
 interface RoleplayStudioProps {
@@ -76,7 +77,40 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
   const [latestSession, setLatestSession] = useState<RoleplaySession | null>(null);
   const [apiKey] = useState<string>('');
 
-  // 5. Engine Instances (Refs)
+  // 5. Live In-Call Copilot State
+  const [copilotCues, setCopilotCues] = useState<CopilotCue[]>([]);
+  const [isCopilotAnalyzing, setIsCopilotAnalyzing] = useState(false);
+  const [copilotTone, setCopilotTone] = useState<string>('Calm & Receptive');
+
+  const fetchCopilotCue = async (userSpeech?: string, customerSpeech?: string) => {
+    try {
+      setIsCopilotAnalyzing(true);
+      const res = await fetch('/api/copilot/cue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deal_id: dealContext?.deal_id || dealId || 'deal_demo',
+          user_speech: userSpeech || '',
+          customer_speech: customerSpeech || '',
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.cues && data.cues.length > 0) {
+          setCopilotCues(prev => [data.cues[0], ...prev.filter(c => c.id !== data.cues[0].id).slice(0, 5)]);
+        }
+        if (data.tone) {
+          setCopilotTone(data.tone);
+        }
+      }
+    } catch (err) {
+      console.warn('Live Copilot cue fetch note:', err);
+    } finally {
+      setIsCopilotAnalyzing(false);
+    }
+  };
+
+  // 6. Engine Instances (Refs)
   const memoryEngineRef = useRef(new MemoryEngine());
   const latencyTrackerRef = useRef(new LatencyTracker());
   const evaluationEngineRef = useRef(new EvaluationEngine());
@@ -101,6 +135,13 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
     }
     loadDeal();
   }, [dealId, dealContext]);
+
+  // Initial Copilot opening discovery cue trigger
+  useEffect(() => {
+    if (dealContext && copilotCues.length === 0) {
+      fetchCopilotCue('', "Thanks for taking the time to speak with me today.");
+    }
+  }, [dealContext]);
 
   // Dynamically configure Persona from DealContext
   useEffect(() => {
@@ -325,6 +366,9 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
     const finalTurns = [...updatedTurns, personaTurn];
     setTurns(finalTurns);
 
+    // Trigger Live Copilot Cue Evaluation with prospect's latest speech
+    fetchCopilotCue(userText, fullText);
+
     if (audioEngineRef.current) {
       audioEngineRef.current.speak(
         fullText,
@@ -488,32 +532,52 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
           </div>
         )}
 
-        {/* Center Voice Stage: Orb Visualizer */}
-        <div className="w-full border border-white/[0.08] bg-[#0c0d12] relative overflow-hidden min-h-[460px] flex flex-col items-center justify-center">
-          <VoiceAgentOrb
-            isSpeaking={isSpeaking}
-            isListening={isListening}
-            audioLevel={audioLevel}
-            isStreamingResponse={isStreamingResponse}
-            activePersona={activePersona}
-            wasInterrupted={wasInterrupted}
-          />
-        </div>
+        {/* Main 2-Column Grid: Voice Stage (Left) & Live Copilot Panel (Right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 w-full items-start">
+          
+          {/* Left Column: Voice Orb Stage & Audio Controls (7 cols on lg) */}
+          <div className="lg:col-span-7 flex flex-col gap-6 w-full">
+            <div className="w-full border border-white/[0.08] bg-[#0c0d12] relative overflow-hidden min-h-[460px] flex flex-col items-center justify-center">
+              <VoiceAgentOrb
+                isSpeaking={isSpeaking}
+                isListening={isListening}
+                audioLevel={audioLevel}
+                isStreamingResponse={isStreamingResponse}
+                activePersona={activePersona}
+                wasInterrupted={wasInterrupted}
+              />
+            </div>
 
-        {/* Full-Width Audio Controls Bar */}
-        <div className="w-full">
-          <AudioControls
-            isListening={isListening}
-            isSpeaking={isSpeaking}
-            audioLevel={audioLevel}
-            onToggleListening={handleToggleListening}
-            onSendTextMessage={handleUserSpeechSubmitted}
-            wasInterrupted={wasInterrupted}
-            roundtripMs={telemetry.totalRoundtripMs}
-            showTranscripts={showTranscripts}
-            onToggleTranscripts={() => setShowTranscripts(!showTranscripts)}
-            turnCount={turns.length}
-          />
+            {/* Audio Controls Bar */}
+            <div className="w-full">
+              <AudioControls
+                isListening={isListening}
+                isSpeaking={isSpeaking}
+                audioLevel={audioLevel}
+                onToggleListening={handleToggleListening}
+                onSendTextMessage={handleUserSpeechSubmitted}
+                wasInterrupted={wasInterrupted}
+                roundtripMs={telemetry.totalRoundtripMs}
+                showTranscripts={showTranscripts}
+                onToggleTranscripts={() => setShowTranscripts(!showTranscripts)}
+                turnCount={turns.length}
+              />
+            </div>
+          </div>
+
+          {/* Right Column: Live AI Copilot Battlecard Panel (5 cols on lg) */}
+          <div className="lg:col-span-5 w-full">
+            <LiveCopilotWidget
+              dealContext={dealContext}
+              dealId={dealId}
+              activeCue={copilotCues[0] || null}
+              allCues={copilotCues}
+              isAnalyzing={isCopilotAnalyzing}
+              currentTone={copilotTone}
+              className="w-full min-h-[550px]"
+            />
+          </div>
+
         </div>
 
         {/* Collapsible Transcript Stream (Shown only when 'Show Transcripts' is pressed) */}
