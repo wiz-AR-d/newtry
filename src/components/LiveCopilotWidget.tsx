@@ -231,22 +231,95 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
     };
   });
 
-  // Maintain window of exactly 2 cards
-  const [cardWindowStart, setCardWindowStart] = useState<number>(0);
-
+  // Exact 1:1 scrolling & focus state from copilot/packages/ui/src/App.jsx
+  const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+  const focusedCardIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (cueCards.length > 2) {
-      // Automatically snap to latest 2 cards when new cues arrive
-      setCardWindowStart(cueCards.length - 2);
-    } else {
-      setCardWindowStart(0);
-    }
-  }, [cueCards.length]);
+    focusedCardIdRef.current = focusedCardId;
+  }, [focusedCardId]);
 
-  const visibleCards = cueCards.slice(cardWindowStart, cardWindowStart + 2);
+  const suggestionsContainerRef = useRef<HTMLDivElement>(null);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isProgrammaticScrollingRef = useRef(false);
+  const cueCardsRef = useRef(cueCards);
+  useEffect(() => {
+    cueCardsRef.current = cueCards;
+  }, [cueCards]);
+
+  // triggerFocusOnCard: sets focused card and smooth-scrolls to (cardIndex - 1) * itemHeight
+  const triggerFocusOnCard = (cardId: string) => {
+    setFocusedCardId(cardId);
+    
+    setTimeout(() => {
+      const container = suggestionsContainerRef.current;
+      if (!container) return;
+      const cardIndex = cueCardsRef.current.findIndex(c => c.id === cardId);
+      if (cardIndex === -1) return;
+      
+      const itemHeight = container.clientHeight > 0 ? (container.clientHeight / 2) : 220;
+      const targetScrollTop = Math.max(0, (cardIndex - 1) * itemHeight);
+      
+      isProgrammaticScrollingRef.current = true;
+      container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+      
+      setTimeout(() => {
+        isProgrammaticScrollingRef.current = false;
+      }, 500);
+    }, 80);
+  };
+
+  // handleSuggestionsScroll: snaps debounced scroll to nearest index and focuses card in Slot 2
+  const handleSuggestionsScroll = () => {
+    if (isProgrammaticScrollingRef.current) return;
+
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      const container = suggestionsContainerRef.current;
+      if (!container || cueCardsRef.current.length === 0) return;
+
+      const itemHeight = container.clientHeight > 0 ? (container.clientHeight / 2) : 220;
+      const scrollTop = container.scrollTop;
+
+      // Find nearest index to snap
+      const nearestIndex = Math.round(scrollTop / itemHeight);
+      const targetScrollTop = nearestIndex * itemHeight;
+
+      // Snap scroll
+      isProgrammaticScrollingRef.current = true;
+      container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+      
+      setTimeout(() => {
+        isProgrammaticScrollingRef.current = false;
+      }, 500);
+
+      // Focus card in Slot 2 (nearestIndex + 1)
+      const targetCardIndex = Math.min(cueCardsRef.current.length - 1, nearestIndex + 1);
+      if (targetCardIndex >= 0) {
+        const targetCard = cueCardsRef.current[targetCardIndex];
+        setFocusedCardId(targetCard.id);
+      }
+    }, 1000);
+  };
+
+  // Auto-focus and scroll forward when new cue card arrives
+  const prevCardCountRef = useRef(0);
+  useEffect(() => {
+    if (cueCards.length > 0) {
+      const latestCard = cueCards[cueCards.length - 1];
+      if (cueCards.length !== prevCardCountRef.current) {
+        prevCardCountRef.current = cueCards.length;
+        triggerFocusOnCard(latestCard.id);
+      } else if (!focusedCardIdRef.current) {
+        setFocusedCardId(latestCard.id);
+      }
+    }
+  }, [cueCards]);
 
   // Proportional line sizing logic exactly from copilot/packages/ui/src/App.jsx:
-  const cardContentLines = visibleCards.map(card => {
+  const cardContentLines = cueCards.map(card => {
     const bulletLines = card.bullets ? card.bullets.length : 0;
     const responseLines = card.exactResponse ? Math.ceil(card.exactResponse.length / 35) : 0;
     const headerLine = 1;
@@ -254,22 +327,6 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
   });
 
   const totalLines = cardContentLines.reduce((sum, l) => sum + l, 0) || 1;
-
-  const handleCardWheel = (e: React.WheelEvent) => {
-    if (cueCards.length <= 2) return;
-    if (Math.abs(e.deltaY) > 12) {
-      if (wheelCooldownRef.current) return;
-      if (e.deltaY > 12) {
-        // Wheel down -> show newer cards
-        setCardWindowStart(prev => Math.min(cueCards.length - 2, prev + 1));
-      } else if (e.deltaY < -12) {
-        // Wheel up -> show older cards
-        setCardWindowStart(prev => Math.max(0, prev - 1));
-      }
-      wheelCooldownRef.current = true;
-      setTimeout(() => { wheelCooldownRef.current = false; }, 200);
-    }
-  };
 
   return (
     <div 
@@ -372,9 +429,9 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
       {/* Bottom Window: 2-Slide Viewport */}
       <div className="copilot-slide-viewport">
         {sidepanelTab === 'hud' ? (
-          /* Slide 1: Live Dynamic HUD Cues (Exact Two-Card View) */
-          <section className="hud-suggestions-scroll" onWheel={handleCardWheel}>
-            {visibleCards.length === 0 ? (
+          /* Slide 1: Live Dynamic HUD Cues (Exact Two-Card View from copilot/packages/ui) */
+          <section className="hud-suggestions-scroll">
+            {cueCards.length === 0 ? (
               /* Empty State Radar Pulse */
               <div className="hud-background-canvas">
                 <div className="radar-icon-wrapper">
@@ -389,119 +446,112 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
                 </span>
               </div>
             ) : (
-              /* Two-Card View Stack with Proportional Sizing */
-              <div className="flex flex-col h-full w-full min-h-0">
-                {cueCards.length > 2 && (
-                  <div className="card-queue-navigator">
-                    <button 
-                      type="button"
-                      disabled={cardWindowStart === 0}
-                      onClick={() => setCardWindowStart(p => Math.max(0, p - 1))}
-                      className="queue-nav-btn"
-                      title="Scroll to previous cards"
+              /* Two-Card View with Proportional Line Math and Smooth Snap-Scroll */
+              <div 
+                ref={suggestionsContainerRef}
+                className="suggestions-timeline-container"
+                onScroll={handleSuggestionsScroll}
+              >
+                {cueCards.map((card, idx) => {
+                  const isCompleted = completedCardIds.has(card.id);
+                  const isFocused = card.id === (focusedCardId || cueCards[cueCards.length - 1]?.id);
+
+                  const myLines = cardContentLines[idx] || 1;
+                  const ratio = cueCards.length <= 2 ? (myLines / totalLines) : 0.5;
+                  const flexValue = cueCards.length <= 2 ? ratio : 1;
+
+                  // Proportional scaling from copilot/packages/ui/src/App.jsx
+                  const baseBulletFont = 12.0 + (ratio * 2.5);
+                  const baseResponseFont = 11.0 + (ratio * 2.0);
+                  const bulletFontSize = `${Math.min(baseBulletFont, 14)}px`;
+                  const responseFontSize = `${Math.min(baseResponseFont, 12.5)}px`;
+                  const bulletGap = `${Math.max(4, Math.round(ratio * 8))}px`;
+                  const cardPad = `${Math.max(6, Math.round(ratio * 12))}px 12px`;
+                  const exactResponseMarginTop = `${Math.max(4, Math.round(ratio * 8))}px`;
+                  const exactResponsePadding = `${Math.max(4, Math.round(ratio * 6))}px ${Math.max(6, Math.round(ratio * 8))}px`;
+
+                  const cardStyle: React.CSSProperties = cueCards.length > 2 
+                    ? {
+                        height: 'calc(50% - 5px)',
+                        minHeight: 'calc(50% - 5px)',
+                        flexShrink: 0,
+                        scrollSnapAlign: 'start',
+                        padding: cardPad,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      }
+                    : {
+                        flex: flexValue,
+                        minHeight: 0,
+                        padding: cardPad,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                      };
+
+                  return (
+                    <div 
+                      key={card.id}
+                      id={`timeline-card-${card.id}`}
+                      className={`timeline-cue-item ${isFocused ? 'focused' : ''} ${isCompleted ? 'completed' : ''}`}
+                      style={cardStyle}
+                      onClick={() => triggerFocusOnCard(card.id)}
                     >
-                      ▲ PREVIOUS
-                    </button>
-                    <span className="queue-nav-text">
-                      Cards {cardWindowStart + 1}–{cardWindowStart + visibleCards.length} of {cueCards.length}
-                    </span>
-                    <button 
-                      type="button"
-                      disabled={cardWindowStart >= cueCards.length - 2}
-                      onClick={() => setCardWindowStart(p => Math.min(cueCards.length - 2, p + 1))}
-                      className="queue-nav-btn"
-                      title="Scroll to newer cards"
-                    >
-                      NEXT ▼
-                    </button>
-                  </div>
-                )}
-
-                <div 
-                  className="suggestions-timeline-container"
-                  style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '8px', minHeight: 0, overflow: 'hidden' }}
-                >
-                  {visibleCards.map((card, vIdx) => {
-                    const originalIdx = cardWindowStart + vIdx;
-                    const isCompleted = completedCardIds.has(card.id);
-                    const isFocused = vIdx === visibleCards.length - 1;
-
-                    const myLines = cardContentLines[vIdx] || 1;
-                    const ratio = myLines / totalLines;
-                    const flexValue = visibleCards.length >= 2 ? ratio : 1;
-
-                    // Proportional scaling from copilot/packages/ui
-                    const baseBulletFont = 11.5 + (ratio * 2.0);
-                    const baseResponseFont = 10.5 + (ratio * 2.0);
-                    const bulletFontSize = `${Math.min(baseBulletFont, 13.5)}px`;
-                    const responseFontSize = `${Math.min(baseResponseFont, 12)}px`;
-                    const bulletGap = `${Math.max(3, Math.round(ratio * 6))}px`;
-                    const cardPad = `${Math.max(6, Math.round(ratio * 10))}px 10px`;
-                    const exactResponseMarginTop = `${Math.max(3, Math.round(ratio * 6))}px`;
-                    const exactResponsePadding = `${Math.max(3, Math.round(ratio * 5))}px ${Math.max(6, Math.round(ratio * 8))}px`;
-
-                    return (
-                      <div 
-                        key={card.id}
-                        id={`timeline-card-${card.id}`}
-                        className={`timeline-cue-item ${isFocused ? 'focused' : ''} ${isCompleted ? 'completed' : ''}`}
-                        style={{ flex: flexValue, padding: cardPad, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 0 }}
-                      >
-                        <div className="timeline-cue-content" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between' }}>
-                          <div className="timeline-cue-header">
-                            <span className="timeline-cue-number">
-                              Card {originalIdx + 1} • {card.category}
+                      <div className="timeline-cue-content" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between' }}>
+                        <div className="timeline-cue-header">
+                          <span className="timeline-cue-number">
+                            Card {idx + 1} • {card.category}
+                          </span>
+                          {card.searchQuery && (
+                            <span className="timeline-cue-query-badge" title={card.searchQuery}>
+                              {card.searchQuery}
                             </span>
-                            {card.searchQuery && (
-                              <span className="timeline-cue-query-badge" title={card.searchQuery}>
-                                {card.searchQuery}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Direction Bullets with Tag Badges */}
-                          <div className="card-bullets-list" style={{ gap: bulletGap, flex: 1, justifyContent: 'space-evenly' }}>
-                            {card.bullets.map(b => (
-                              <div key={b.id} className="bullet-item">
-                                {b.tag && (
-                                  <span className="bullet-tag-badge">
-                                    {b.tag}
-                                  </span>
-                                )}
-                                <span className="timeline-cue-instruction" style={{ fontSize: bulletFontSize }}>
-                                  {b.directionText}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Exact Speech Quote with 1-Click Copy */}
-                          {card.exactResponse && (
-                            <div 
-                              className="card-exact-response-speech"
-                              style={{ marginTop: exactResponseMarginTop, padding: exactResponsePadding }}
-                            >
-                              <p className="speech-quote-text" style={{ fontSize: responseFontSize }}>
-                                "{card.exactResponse}"
-                              </p>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCopy(card.exactResponse, card.id);
-                                }}
-                                className="copy-speech-btn"
-                                title="Copy exact response to clipboard"
-                              >
-                                {copiedId === card.id ? '✓' : '⎘'}
-                              </button>
-                            </div>
                           )}
                         </div>
+
+                        {/* Direction Bullets with Tag Badges */}
+                        <div className="card-bullets-list" style={{ gap: bulletGap, flex: 1, justifyContent: 'space-evenly' }}>
+                          {card.bullets.map(b => (
+                            <div key={b.id} className="bullet-item">
+                              {b.tag && (
+                                <span className="bullet-tag-badge">
+                                  {b.tag}
+                                </span>
+                              )}
+                              <span className="timeline-cue-instruction" style={{ fontSize: bulletFontSize }}>
+                                {b.directionText}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Exact Speech Quote with 1-Click Copy */}
+                        {card.exactResponse && (
+                          <div 
+                            className="card-exact-response-speech"
+                            style={{ marginTop: exactResponseMarginTop, padding: exactResponsePadding }}
+                          >
+                            <p className="speech-quote-text" style={{ fontSize: responseFontSize }}>
+                              "{card.exactResponse}"
+                            </p>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopy(card.exactResponse, card.id);
+                              }}
+                              className="copy-speech-btn"
+                              title="Copy exact response to clipboard"
+                            >
+                              {copiedId === card.id ? '✓' : '⎘'}
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>

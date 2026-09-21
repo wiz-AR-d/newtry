@@ -162,10 +162,10 @@
   flex-direction: column;
   background: #18181f;
   border-bottom: 1px solid #27272a;
-  padding: 8px 12px;
+  padding: 10px 12px;
   box-sizing: border-box;
-  height: 165px;
-  max-height: 165px;
+  height: 180px;
+  max-height: 180px;
   flex-shrink: 0;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -451,66 +451,28 @@
   color: #64748b;
 }
 
-/* Two-Card Queue Navigator */
-.card-queue-navigator {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 3px 8px;
-  background: rgba(39, 39, 42, 0.5);
-  border-radius: 6px;
-  margin-bottom: 6px;
-  flex-shrink: 0;
-}
-
-.theme-light .card-queue-navigator {
-  background: #f1f5f9;
-}
-
-.queue-nav-btn {
-  background: transparent;
-  border: none;
-  color: #c084fc;
-  font-size: 10px;
-  font-weight: bold;
-  cursor: pointer;
-  padding: 2px 8px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.theme-light .queue-nav-btn {
-  color: #7c3aed;
-}
-
-.queue-nav-btn:disabled {
-  opacity: 0.25;
-  cursor: not-allowed;
-}
-
-.queue-nav-btn:not(:disabled):hover {
-  background: rgba(168, 85, 247, 0.2);
-}
-
-.queue-nav-text {
-  font-size: 9.5px;
-  font-weight: 600;
-  color: #a1a1aa;
-}
-
-.theme-light .queue-nav-text {
-  color: #64748b;
-}
-
-/* Two-Card View Stack */
+/* Two-Card View Stack with native smooth snap-scroll (1:1 with copilot/packages/ui) */
 .suggestions-timeline-container {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+}
+
+.suggestions-timeline-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.suggestions-timeline-container::-webkit-scrollbar-thumb {
+  background: rgba(168, 85, 247, 0.2);
+  border-radius: 2px;
 }
 
 .timeline-cue-item {
