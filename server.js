@@ -767,15 +767,23 @@ app.post('/api/copilot/cue', async (req, res) => {
 
     if (isSmallTalk) {
       const openingQuestion = deal?.discovery_questions?.[0] || '"How long does it currently take a new sales rep on your team to ramp to quota?"';
+      const cleanQ = openingQuestion.replace(/^"|"$/g, '');
       cues.push({
         id: `cue-smalltalk-${Date.now()}`,
         timestamp: Date.now(),
         type: 'discovery_question',
+        category: 'DISCOVERY',
+        searchQuery: `Opening Discovery Pivot • ${deal?.target_company || 'Prospect'}`,
         title: '🎯 OPENING DISCOVERY PIVOT',
         description: `Prospect is warming up. Acknowledge briefly and pivot directly to uncovering their acute pain at ${deal?.target_company || 'the company'}.`,
+        exactResponse: `Great to connect! Before we jump in, curious: ${cleanQ}`,
+        winningRebuttal: `Great to connect! Before we jump in, curious: ${cleanQ}`,
+        bullets: [
+          { id: `st-b1-${Date.now()}`, tag: 'PIVOT', directionText: 'Acknowledge greeting briefly and transition directly into discovery.' },
+          { id: `st-b2-${Date.now()}`, tag: 'PROBE', directionText: cleanQ }
+        ],
         suggestedAction: 'Ask opening discovery question before introducing any product features.',
-        suggestedQuestion: openingQuestion,
-        winningRebuttal: `Great to connect! Before we jump in, curious: ${openingQuestion.replace(/^"|"$/g, '')}`
+        suggestedQuestion: cleanQ
       });
       return res.json({ cues, tone: detectedTone });
     }
@@ -805,13 +813,22 @@ app.post('/api/copilot/cue', async (req, res) => {
 
     if (matchedObjection) {
       detectedTone = 'Skeptical & Critical';
+      const rebuttal = matchedObjection.suggestedHandling || 'Acknowledge their setup and emphasize quantifiable ramp reduction ROI.';
       cues.push({
         id: `cue-reflex-${Date.now()}`,
         timestamp: Date.now(),
         type: 'objection',
+        category: (matchedObjection.category || 'OBJECTION').toUpperCase(),
+        searchQuery: matchedObjection.title.slice(0, 48),
         title: `⚠️ OBJECTION: ${matchedObjection.title.slice(0, 45)}...`,
         description: matchedObjection.description || `Prospect is raising a ${matchedObjection.category || 'core'} objection.`,
-        winningRebuttal: matchedObjection.suggestedHandling || 'Acknowledge their setup and emphasize quantifiable ramp reduction ROI.',
+        exactResponse: rebuttal,
+        winningRebuttal: rebuttal,
+        bullets: [
+          { id: `ref-b1-${Date.now()}`, tag: (matchedObjection.category || 'OBJECTION').toUpperCase(), directionText: matchedObjection.description || matchedObjection.title },
+          { id: `ref-b2-${Date.now()}`, tag: 'ACTION', directionText: 'Deliver winning rebuttal immediately without criticizing existing tools.' },
+          { id: `ref-b3-${Date.now()}`, tag: 'PROBE', directionText: 'Does that make sense, or would you like to see how that works in practice?' }
+        ],
         suggestedAction: 'Deliver the winning rebuttal below immediately, then follow up with a validation question.',
         suggestedQuestion: `"Does that make sense, or would you like to see how that works in practice?"`,
         isReflex: true
@@ -882,13 +899,16 @@ ${customer_speech ? `PROSPECT: "${customer_speech}"` : ''}
 ${user_speech ? `SALES REP: "${user_speech}"` : ''}
 
 TASK:
-Provide the sales rep with ONE instant, high-conversion tactical battlecard cue.
+Provide the sales rep with ONE instant, high-conversion tactical battlecard cue matching the CloseIQ Copilot card schema.
 STRICT OUTPUT FORMAT: Output ONLY valid JSON matching this schema:
 {
-  "type": "objection" | "value_prop" | "discovery_question" | "coaching_alert",
-  "title": "Short Punchy Title with Emoji (e.g. 🎯 REFRAME GONG COMPARISON)",
-  "description": "1 concise sentence explaining the tactical angle",
-  "winningRebuttal": "Exact quote for the rep to speak out loud, under 25 words",
+  "category": "COMPETITION" | "PRICING" | "VALUE_PROP" | "OBJECTION" | "DISCOVERY",
+  "searchQuery": "Concise 3-6 word topic (e.g. Gong vs CloseIQ Live Guidance)",
+  "exactResponse": "Exact quote for the rep to speak out loud, under 25 words",
+  "bullets": [
+    { "tag": "OBJECTION" | "TACTIC" | "METRIC" | "AVOID" | "PROBE", "directionText": "Concise tactical rule" }
+  ],
+  "title": "Short Punchy Title with Emoji (e.g. 🎯 REFRAME GONG)",
   "suggestedAction": "Tactical action for the rep (under 15 words)",
   "suggestedQuestion": "High-leverage follow up question"
 }`.trim();
@@ -944,16 +964,38 @@ STRICT OUTPUT FORMAT: Output ONLY valid JSON matching this schema:
       }
     }
 
-    if (llmCue && llmCue.title && llmCue.winningRebuttal) {
+    if (llmCue && (llmCue.exactResponse || llmCue.winningRebuttal || llmCue.title)) {
+      const exactResponse = llmCue.exactResponse || llmCue.winningRebuttal || 'Deliver tactical talking track.';
+      const bullets = Array.isArray(llmCue.bullets) && llmCue.bullets.length > 0
+        ? llmCue.bullets.map((b, i) => ({
+            id: `llm-b${i}-${Date.now()}`,
+            tag: b.tag || 'TACTIC',
+            directionText: b.directionText || (typeof b === 'string' ? b : 'Deliver key talking track.')
+          }))
+        : [
+            { id: `llm-b0-${Date.now()}`, tag: llmCue.category || 'TACTIC', directionText: llmCue.description || llmCue.suggestedAction || 'Deliver high-leverage talking track.' }
+          ];
+
+      if (llmCue.suggestedAction && !bullets.some(b => b.tag === 'ACTION')) {
+        bullets.push({ id: `llm-act-${Date.now()}`, tag: 'ACTION', directionText: llmCue.suggestedAction });
+      }
+      if (llmCue.suggestedQuestion && !bullets.some(b => b.tag === 'PROBE')) {
+        bullets.push({ id: `llm-prb-${Date.now()}`, tag: 'PROBE', directionText: llmCue.suggestedQuestion });
+      }
+
       cues.push({
         id: `cue-llm-${Date.now()}`,
         timestamp: Date.now(),
         type: llmCue.type || 'value_prop',
-        title: llmCue.title,
-        description: llmCue.description,
-        winningRebuttal: llmCue.winningRebuttal,
-        suggestedAction: llmCue.suggestedAction || 'Deliver winning talking track.',
-        suggestedQuestion: llmCue.suggestedQuestion,
+        category: (llmCue.category || 'VALUE_PROP').toUpperCase(),
+        searchQuery: llmCue.searchQuery || llmCue.title || 'Live Tactical Cue',
+        title: llmCue.title || llmCue.searchQuery || '🎯 TACTICAL CUE',
+        description: llmCue.description || bullets[0]?.directionText || 'Strategic talking track',
+        exactResponse,
+        winningRebuttal: exactResponse,
+        bullets,
+        suggestedAction: llmCue.suggestedAction || 'Deliver winning rebuttal immediately.',
+        suggestedQuestion: llmCue.suggestedQuestion || `"Does that align with your goals?"`,
         relatedPracticeWeakness: session?.weaknesses?.[0]
       });
     }

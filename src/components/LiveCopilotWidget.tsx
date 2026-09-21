@@ -1,20 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Bot, 
-  Sparkles, 
-  ShieldAlert, 
-  CheckCircle2, 
-  HelpCircle, 
-  Flame, 
-  ChevronDown, 
-  ChevronUp, 
-  Copy, 
-  Check, 
-  Zap, 
-  Target, 
-  AlertTriangle 
-} from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { DealContext, CopilotCue } from '../types';
+import './CopilotExtension.css';
+
+interface ConversationTurnProp {
+  speaker: 'user' | 'agent' | string;
+  text: string;
+  timestamp?: number;
+}
 
 interface LiveCopilotWidgetProps {
   dealContext?: DealContext | null;
@@ -23,7 +15,17 @@ interface LiveCopilotWidgetProps {
   allCues?: CopilotCue[];
   isAnalyzing?: boolean;
   currentTone?: string;
+  turns?: ConversationTurnProp[];
+  streamingText?: string;
   className?: string;
+}
+
+interface ChecklistItem {
+  id: string;
+  title: string;
+  description: string;
+  completed: boolean;
+  keywords: string[];
 }
 
 export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
@@ -33,308 +35,436 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
   allCues = [],
   isAnalyzing = false,
   currentTone = 'Calm & Receptive',
+  turns = [],
+  streamingText = '',
   className = '',
 }) => {
+  // Swipeable Slide Tab: 'hud' | 'transcript'
+  const [sidepanelTab, setSidepanelTab] = useState<'hud' | 'transcript'>('hud');
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [selectedTab, setSelectedTab] = useState<'live' | 'battlecards' | 'discovery'>('live');
+  const [completedCardIds, setCompletedCardIds] = useState<Set<string>>(new Set());
 
-  const targetCompany = dealContext?.target_company || 'Target Prospect';
-  const personaName = dealContext?.target_persona?.name || 'Buyer';
-  const personaTitle = dealContext?.target_persona?.title || 'Decision Maker';
+  // Swipe gesture detection (Touch / Pointer drag & Trackpad wheel)
+  const [gestureStartX, setGestureStartX] = useState<number | null>(null);
+  const wheelCooldownRef = useRef(false);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  const targetCompany = dealContext?.target_company || 'Prospect';
+  const personaName = dealContext?.target_persona?.name || 'Customer';
+
+  // Dynamic Call Checklist synthesized from DealContext
+  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
+
+  useEffect(() => {
+    if (dealContext) {
+      const p1 = dealContext.pain_points?.[0] || 'Uncover operational bottlenecks';
+      const vp1 = dealContext.seller_value_propositions?.[0];
+      const obj1 = dealContext.likely_objections?.[0];
+      const diff1 = dealContext.seller_action_playbook?.key_differentiators?.[0] || 'Sub-second real-time battlecards';
+      const avoid1 = dealContext.seller_action_playbook?.what_to_avoid?.[0] || 'Do not offer premature discounts';
+      const objOutcome = dealContext.call_objective || 'Confirm 14-day technical sandbox pilot';
+
+      const items: ChecklistItem[] = [
+        {
+          id: 'step-intro',
+          title: 'Rapport & Introduction',
+          description: `Introduce CloseIQ and build initial rapport with ${personaName}`,
+          completed: false,
+          keywords: ['hello', 'hi', 'welcome', 'closeiq', 'doing today', 'thanks for connecting']
+        },
+        {
+          id: 'step-pain',
+          title: 'Probe Core Pain Point',
+          description: `Unpack bottleneck: "${p1.slice(0, 65)}..."`,
+          completed: false,
+          keywords: ['bottleneck', 'ramp', 'challenge', 'takes', 'months', 'quota', 'problem', 'delay']
+        },
+        {
+          id: 'step-value',
+          title: 'Pitch Value & ROI Metric',
+          description: vp1 ? `${vp1.title} (${vp1.impact_metric})` : 'Demonstrate quantifiable ramp reduction',
+          completed: false,
+          keywords: ['metric', 'ramp', 'percent', 'fast', 'save', 'roi', 'hours', 'impact']
+        },
+        {
+          id: 'step-objection',
+          title: 'Address Key Objection',
+          description: obj1 ? `Handle "${obj1.title.slice(0, 50)}..."` : 'Address competitor / pricing hesitation',
+          completed: false,
+          keywords: ['gong', 'cost', 'budget', 'price', 'expensive', 'already', 'tool', 'quarter']
+        },
+        {
+          id: 'step-playbook',
+          title: 'Deploy Differentiators',
+          description: `Highlight ${diff1.slice(0, 45)} (Avoid: ${avoid1.slice(0, 40)})`,
+          completed: false,
+          keywords: ['live', 'real-time', 'copilot', 'different', 'whisper', 'in-call', 'sandbox']
+        },
+        {
+          id: 'step-close',
+          title: 'Secure Call Objective',
+          description: objOutcome,
+          completed: false,
+          keywords: ['pilot', 'trial', 'sandbox', 'next step', 'schedule', 'demo', 'evaluation', 'tuesday']
+        }
+      ];
+      setChecklistItems(items);
+    }
+  }, [dealContext, personaName]);
+
+  // Auto-complete checklist items when rep/customer mentions keywords
+  useEffect(() => {
+    if (turns.length === 0 || checklistItems.length === 0) return;
+    const latestTurn = turns[turns.length - 1]?.text?.toLowerCase() || '';
+    if (!latestTurn) return;
+
+    setChecklistItems(prev => prev.map(item => {
+      if (item.completed) return item;
+      const matched = item.keywords.some(kw => latestTurn.includes(kw));
+      return matched ? { ...item, completed: true } : item;
+    }));
+  }, [turns]);
+
+  // Auto-scroll transcript on new speech
+  useEffect(() => {
+    if (sidepanelTab === 'transcript') {
+      transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [turns, streamingText, sidepanelTab]);
+
+  // Gesture Handlers
+  const handlePointerDown = (e: React.PointerEvent) => {
+    setGestureStartX(e.clientX);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (gestureStartX === null) return;
+    const deltaX = e.clientX - gestureStartX;
+    if (deltaX > 20) {
+      // Swiped right -> Live Feed / Transcript
+      setSidepanelTab('transcript');
+    } else if (deltaX < -20) {
+      // Swiped left -> HUD Cues
+      setSidepanelTab('hud');
+    }
+    setGestureStartX(null);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (wheelCooldownRef.current) return;
+    if (Math.abs(e.deltaX) > 12) {
+      if (e.deltaX > 12) {
+        setSidepanelTab('transcript');
+      } else if (e.deltaX < -12) {
+        setSidepanelTab('hud');
+      }
+      wheelCooldownRef.current = true;
+      setTimeout(() => {
+        wheelCooldownRef.current = false;
+      }, 250);
+    }
+  };
 
   const handleCopy = (text: string, id: string) => {
     if (!text) return;
     navigator.clipboard.writeText(text);
     setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+    setTimeout(() => setCopiedId(null), 1800);
   };
 
-  const displayCue = activeCue || allCues[0] || null;
+  const toggleChecklist = (id: string) => {
+    setChecklistItems(prev => prev.map(item => 
+      item.id === id ? { ...item, completed: !item.completed } : item
+    ));
+  };
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  // Checklist calculations
+  const totalChecklist = checklistItems.length;
+  const completedChecklist = checklistItems.filter(i => i.completed).length;
+  const checklistPercent = totalChecklist > 0 ? Math.round((completedChecklist / totalChecklist) * 100) : 0;
+
+  // Normalized cue cards list
+  const cueCards = (allCues.length > 0 ? allCues : (activeCue ? [activeCue] : [])).map((cue, idx) => {
+    const cardId = cue.id || `cue-${idx}`;
+    const category = (cue.category || cue.type || 'TACTIC').toUpperCase();
+    const searchQuery = cue.searchQuery || cue.title || 'Client Objection Guidance';
+    const exactResponse = cue.exactResponse || cue.winningRebuttal || cue.suggestedQuestion || '';
+    
+    // Normalize bullets
+    let bullets = cue.bullets;
+    if (!bullets || bullets.length === 0) {
+      bullets = [
+        {
+          id: `${cardId}-b0`,
+          tag: cue.type ? cue.type.toUpperCase().replace('_', ' ') : 'TACTIC',
+          directionText: cue.description || cue.suggestedAction || 'Deliver high-leverage talking track.'
+        }
+      ];
+      if (cue.suggestedAction && cue.description && cue.suggestedAction !== cue.description) {
+        bullets.push({
+          id: `${cardId}-b1`,
+          tag: 'ACTION',
+          directionText: cue.suggestedAction
+        });
+      }
+      if (cue.suggestedQuestion) {
+        bullets.push({
+          id: `${cardId}-b2`,
+          tag: 'PROBE',
+          directionText: cue.suggestedQuestion
+        });
+      }
+    }
+
+    return {
+      id: cardId,
+      category,
+      searchQuery,
+      exactResponse,
+      bullets,
+      isReflex: cue.isReflex
+    };
+  });
 
   return (
-    <div className={`flex flex-col bg-[#0c0d12] border border-white/[0.08] shadow-2xl relative overflow-hidden ${className}`}>
-      
-      {/* Top Header Bar */}
-      <div className="p-4 bg-[#11131a] border-b border-white/[0.08] flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
-            <Bot className={`h-4 w-4 ${isAnalyzing ? 'animate-spin text-blue-300' : 'text-blue-400'}`} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-1.5">
-                Live AI Copilot
-              </span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-500/30">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                MEMORY ACTIVE
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 font-mono truncate max-w-[260px]">
-              Remembering {targetCompany} • {personaName} ({personaTitle})
-            </p>
-          </div>
-        </div>
-
-        {/* Emotion / Tone Badge */}
-        <div className="flex items-center gap-1.5 bg-[#090a0f] border border-white/[0.08] px-2.5 py-1 text-[11px]">
-          <span className="text-slate-400">Buyer Tone:</span>
-          <span className={`font-semibold ${
-            currentTone.toLowerCase().includes('skeptical') || currentTone.toLowerCase().includes('agitated')
-              ? 'text-rose-400'
-              : 'text-blue-400'
-          }`}>
-            {currentTone}
+    <div 
+      className={`copilot-extension-host ${theme === 'dark' ? 'theme-dark' : 'theme-light'} ${className}`}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onWheel={handleWheel}
+    >
+      {/* Top Extension Header */}
+      <header className="ext-header-bar">
+        <div className="ext-brand-wrap">
+          <span className="ext-brand-logo">CloseIQ</span>
+          <span className="ext-brand-badge">
+            {sidepanelTab === 'hud' ? 'HUD' : 'LIVE FEED'}
           </span>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex items-center border-b border-white/[0.08] bg-[#090a0f] px-4 text-xs font-semibold">
-        <button
-          type="button"
-          onClick={() => setSelectedTab('live')}
-          className={`py-2.5 px-3 border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
-            selectedTab === 'live'
-              ? 'border-blue-500 text-blue-400 font-bold'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Zap className="h-3.5 w-3.5" />
-          <span>Live Tactical Cues</span>
-          {allCues.length > 0 && (
-            <span className="ml-1 px-1.5 py-0.2 bg-blue-900/60 text-blue-300 text-[10px] font-mono">
-              {allCues.length}
+          {isAnalyzing && (
+            <span className="text-[10px] text-purple-400 font-mono animate-pulse">
+              ● Analyzing...
             </span>
           )}
-        </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setSelectedTab('battlecards')}
-          className={`py-2.5 px-3 border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
-            selectedTab === 'battlecards'
-              ? 'border-blue-500 text-blue-400 font-bold'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Flame className="h-3.5 w-3.5" />
-          <span>Objection Battlecards</span>
-        </button>
+        <div className="ext-controls-wrap">
+          {/* 2-Slide Swipe Dots Indicator */}
+          <div 
+            className="ext-view-dots" 
+            title="Swipe left/right or click to switch view"
+          >
+            <span 
+              onClick={() => setSidepanelTab('hud')} 
+              className={`ext-dot ${sidepanelTab === 'hud' ? 'active' : 'inactive'}`}
+              title="HUD Battlecards"
+            />
+            <span 
+              onClick={() => setSidepanelTab('transcript')} 
+              className={`ext-dot ${sidepanelTab === 'transcript' ? 'active' : 'inactive'}`}
+              title="Live Transcript Feed"
+            />
+          </div>
 
-        <button
-          type="button"
-          onClick={() => setSelectedTab('discovery')}
-          className={`py-2.5 px-3 border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
-            selectedTab === 'discovery'
-              ? 'border-blue-500 text-blue-400 font-bold'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <Target className="h-3.5 w-3.5" />
-          <span>Discovery Questions</span>
-        </button>
-      </div>
+          {/* Light / Dark Mode Toggle */}
+          <button 
+            type="button" 
+            onClick={toggleTheme} 
+            className="ext-theme-btn"
+            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+          >
+            {theme === 'dark' ? '🌙' : '☀️'}
+          </button>
 
-      {/* Tab Content */}
-      <div className="p-4 sm:p-5 flex-1 overflow-y-auto max-h-[480px] space-y-4">
-        
-        {/* ========================================================
-            TAB 1: LIVE TACTICAL CUES
-        ======================================================== */}
-        {selectedTab === 'live' && (
-          <div className="space-y-4">
-            
-            {/* Analyzing Indicator */}
-            {isAnalyzing && (
-              <div className="flex items-center gap-2 text-xs font-mono text-blue-400 bg-blue-950/30 border border-blue-500/20 p-2.5 animate-pulse">
-                <Sparkles className="h-3.5 w-3.5 animate-spin" />
-                <span>Copilot is scanning speech against {targetCompany} memory & battlecards...</span>
+          {/* Connection / Memory Status */}
+          <div className="ext-status-pill">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>ARMED</span>
+          </div>
+        </div>
+      </header>
+
+      {/* Top Window: Call Milestones Checklist */}
+      <section className="hud-checklist-container">
+        <div className="checklist-header">
+          <div className="checklist-title-row">
+            <span className="checklist-title">Call Checklist</span>
+            <span className="playbook-badge">{targetCompany.toUpperCase()}</span>
+          </div>
+          
+          <div className="checklist-progress-wrapper">
+            <div className="checklist-progress-bar">
+              <div 
+                className="checklist-progress-fill" 
+                style={{ width: `${checklistPercent}%` }}
+              />
+            </div>
+            <span className="checklist-progress-text">
+              {completedChecklist}/{totalChecklist} Completed ({checklistPercent}%)
+            </span>
+          </div>
+        </div>
+
+        <div className="checklist-items-list">
+          {checklistItems.map(item => (
+            <div 
+              key={item.id}
+              className={`checklist-item ${item.completed ? 'completed' : ''}`}
+              onClick={() => toggleChecklist(item.id)}
+              title="Click to check/uncheck milestone"
+            >
+              <div className="checklist-checkbox">
+                {item.completed && <span className="checkmark-icon">✓</span>}
+              </div>
+              <div className="checklist-item-details">
+                <span className="checklist-item-title">{item.title}</span>
+                <span className="checklist-item-desc">{item.description}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Bottom Window: 2-Slide Viewport */}
+      <div className="copilot-slide-viewport">
+        {sidepanelTab === 'hud' ? (
+          /* Slide 1: Live Dynamic HUD Cues */
+          <section className="hud-suggestions-scroll">
+            {cueCards.length === 0 ? (
+              /* Empty State Radar Pulse */
+              <div className="hud-background-canvas">
+                <div className="radar-icon-wrapper">
+                  <div className="radar-pulse ring-1" />
+                  <div className="radar-pulse ring-2" />
+                  <div className="radar-pulse ring-3" />
+                  <div className="radar-core">💡</div>
+                </div>
+                <p className="hud-empty-title">Monitoring live pitch...</p>
+                <span className="hud-empty-sub">
+                  Groq LPU will inject real-time objection battlecards and negotiation cues here.
+                </span>
+              </div>
+            ) : (
+              /* Timeline Stack of Battlecards */
+              <div className="suggestions-timeline-container">
+                {cueCards.slice(0, 3).map((card, idx) => {
+                  const isCompleted = completedCardIds.has(card.id);
+                  const isFocused = idx === 0;
+
+                  return (
+                    <div 
+                      key={card.id}
+                      className={`timeline-cue-item ${isFocused ? 'focused' : ''} ${isCompleted ? 'completed' : ''}`}
+                    >
+                      <div className="timeline-cue-header">
+                        <span className="timeline-cue-number">
+                          Card {idx + 1} • {card.category}
+                        </span>
+                        {card.searchQuery && (
+                          <span className="timeline-cue-query-badge" title={card.searchQuery}>
+                            {card.searchQuery}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Direction Bullets with Tag Badges */}
+                      <div className="card-bullets-list">
+                        {card.bullets.map(b => (
+                          <div key={b.id} className="bullet-item">
+                            {b.tag && (
+                              <span className="bullet-tag-badge">
+                                {b.tag}
+                              </span>
+                            )}
+                            <span className="timeline-cue-instruction">
+                              {b.directionText}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Exact Speech Quote with 1-Click Copy */}
+                      {card.exactResponse && (
+                        <div className="card-exact-response-speech">
+                          <p className="speech-quote-text">
+                            "{card.exactResponse}"
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopy(card.exactResponse, card.id);
+                            }}
+                            className="copy-speech-btn"
+                            title="Copy exact response to clipboard"
+                          >
+                            {copiedId === card.id ? '✓' : '⎘'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        ) : (
+          /* Slide 2: Live Conversation Transcript Feed */
+          <section className="transcript-scroll-area">
+            {turns.length === 0 && !streamingText && (
+              <div className="text-center text-slate-500 my-auto text-xs py-8 px-4 leading-relaxed">
+                No speech transcribed yet.<br />
+                Speak into the microphone to see real-time conversation feed here.
               </div>
             )}
 
-            {/* Active Highlight Cue */}
-            {displayCue ? (
-              <div className={`p-4 sm:p-5 border transition-all ${
-                displayCue.type === 'objection'
-                  ? 'bg-rose-950/20 border-rose-800/40'
-                  : displayCue.type === 'coaching_alert'
-                  ? 'bg-amber-950/20 border-amber-800/40'
-                  : 'bg-blue-950/20 border-blue-800/40'
-              }`}>
-                {/* Cue Badge & Title */}
-                <div className="flex items-start justify-between gap-3 mb-2.5">
-                  <div className="flex items-center gap-2">
-                    {displayCue.type === 'objection' ? (
-                      <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
-                    ) : displayCue.type === 'coaching_alert' ? (
-                      <ShieldAlert className="h-4 w-4 text-amber-400 shrink-0" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4 text-blue-400 shrink-0" />
-                    )}
-                    <span className="text-xs sm:text-sm font-extrabold uppercase tracking-wide text-white">
-                      {displayCue.title}
-                    </span>
-                  </div>
+            {turns.map((turn, index) => {
+              const isRep = turn.speaker === 'user';
+              const cardClass = isRep ? 'align-rep' : 'align-customer';
+              const themeClass = isRep ? 'theme-rep' : 'theme-customer';
+              const speakerLabel = isRep ? 'You (Rep)' : `${personaName} (${targetCompany})`;
 
-                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 bg-white/5 text-slate-300 border border-white/10 shrink-0">
-                    {displayCue.type}
-                  </span>
-                </div>
-
-                {/* Tactical Description */}
-                <p className="text-xs sm:text-sm text-slate-300 mb-3 leading-relaxed">
-                  {displayCue.description}
-                </p>
-
-                {/* Winning Rebuttal Box (The Exact Quote) */}
-                {displayCue.winningRebuttal && (
-                  <div className="p-3.5 bg-[#07080c] border-l-4 border-l-blue-500 border-y border-r border-white/[0.06] mb-3 relative group">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">
-                        Exact Winning Talking Track:
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(displayCue.winningRebuttal || '', displayCue.id)}
-                        className="text-slate-400 hover:text-white transition-colors cursor-pointer"
-                        title="Copy Rebuttal"
-                      >
-                        {copiedId === displayCue.id ? (
-                          <Check className="h-3.5 w-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </button>
+              return (
+                <div key={index} className={`utterance-card-row ${cardClass}`}>
+                  <div className={`utterance-card ${themeClass}`}>
+                    <div className="utt-meta">
+                      <span className="utt-speaker-label">{speakerLabel}</span>
+                      {turn.timestamp && (
+                        <span className="utt-timestamp">
+                          {new Date(turn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-sm font-medium text-slate-100 italic leading-relaxed">
-                      "{displayCue.winningRebuttal.replace(/^"|"$/g, '')}"
+                    <p className="m-0 leading-relaxed text-left">
+                      {turn.text}
                     </p>
                   </div>
-                )}
+                </div>
+              );
+            })}
 
-                {/* Suggested Action or Question */}
-                <div className="space-y-1.5 text-xs">
-                  {displayCue.suggestedAction && (
-                    <div className="flex items-center gap-2 text-slate-300">
-                      <strong className="text-slate-200">Recommended Action:</strong>
-                      <span>{displayCue.suggestedAction}</span>
-                    </div>
-                  )}
-                  {displayCue.suggestedQuestion && (
-                    <div className="flex items-center gap-2 text-slate-300">
-                      <strong className="text-blue-400">Follow-up Probe:</strong>
-                      <span className="italic text-slate-200">{displayCue.suggestedQuestion}</span>
-                    </div>
-                  )}
+            {/* Interim Speech Drafting Indicator */}
+            {streamingText && (
+              <div className="utterance-card-row align-customer">
+                <div className="utterance-card theme-interim">
+                  <div className="utt-meta">
+                    <span className="utt-speaker-label text-slate-400">Listening...</span>
+                  </div>
+                  <p className="m-0 leading-relaxed text-left italic text-slate-400">
+                    {streamingText}
+                  </p>
                 </div>
               </div>
-            ) : (
-              <div className="p-8 text-center bg-[#090a0f] border border-white/[0.05] space-y-2">
-                <Bot className="h-8 w-8 text-blue-500/50 mx-auto" />
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">Copilot Is Listening</h4>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                  Speak into your microphone or wait for {personaName}'s response. As soon as pain or objections arise, tactical cues will appear here in real time.
-                </p>
-              </div>
             )}
 
-            {/* History Cue Stack */}
-            {allCues.length > 1 && (
-              <div className="space-y-2 pt-2 border-t border-white/[0.06]">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  Recent Call Guidance ({allCues.length - 1} more):
-                </span>
-                {allCues.slice(1, 4).map((cue) => (
-                  <div key={cue.id} className="p-3 bg-[#11131a] border border-white/[0.05] text-xs space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-200">{cue.title}</span>
-                      <span className="text-[10px] text-slate-500 font-mono">{cue.type}</span>
-                    </div>
-                    {cue.winningRebuttal && (
-                      <p className="text-slate-400 text-[11px] italic truncate">
-                        "{cue.winningRebuttal}"
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-          </div>
+            <div ref={transcriptEndRef} />
+          </section>
         )}
-
-        {/* ========================================================
-            TAB 2: OBJECTION BATTLECARDS (From Researched Deal)
-        ======================================================== */}
-        {selectedTab === 'battlecards' && (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Pre-loaded counter-arguments tailored specifically for {targetCompany}:
-            </p>
-
-            {dealContext?.likely_objections && dealContext.likely_objections.length > 0 ? (
-              dealContext.likely_objections.map((obj, idx) => (
-                <div key={idx} className="p-3.5 bg-[#11131a] border border-white/[0.06] space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-rose-300">
-                      "{obj.title}"
-                    </span>
-                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-rose-950/50 text-rose-400 border border-rose-800/30">
-                      {obj.category}
-                    </span>
-                  </div>
-                  <div className="p-2.5 bg-[#090a0f] border-l-2 border-l-rose-500 text-xs text-slate-200 leading-relaxed">
-                    <strong className="block text-slate-300 text-[11px] mb-0.5">Winning Rebuttal Track:</strong>
-                    {obj.suggestedHandling}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-slate-500 italic">No objection battlecards loaded.</p>
-            )}
-          </div>
-        )}
-
-        {/* ========================================================
-            TAB 3: DISCOVERY QUESTIONS (From Researched Deal)
-        ======================================================== */}
-        {selectedTab === 'discovery' && (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Target questions to uncover acute friction and guide {personaName} to urgency:
-            </p>
-
-            {dealContext?.discovery_questions && dealContext.discovery_questions.length > 0 ? (
-              dealContext.discovery_questions.map((q, idx) => (
-                <div key={idx} className="p-3.5 bg-[#11131a] border border-white/[0.06] space-y-1.5 flex items-start gap-3">
-                  <span className="h-5 w-5 bg-blue-900/40 border border-blue-500/30 text-blue-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
-                    {idx + 1}
-                  </span>
-                  <div className="text-xs text-slate-200 leading-relaxed">
-                    "{q.replace(/^"|"$/g, '')}"
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-slate-500 italic">No discovery questions loaded.</p>
-            )}
-
-            {dealContext?.call_objective && (
-              <div className="p-3 bg-blue-950/30 border border-blue-500/30 text-xs text-slate-200 space-y-1 mt-4">
-                <span className="font-bold text-blue-400 block text-[11px] uppercase tracking-wider">
-                  Call Target Objective:
-                </span>
-                <p>{dealContext.call_objective}</p>
-              </div>
-            )}
-          </div>
-        )}
-
       </div>
-
     </div>
   );
 };
-
-export default LiveCopilotWidget;

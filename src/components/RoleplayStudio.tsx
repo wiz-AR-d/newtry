@@ -574,7 +574,9 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
               allCues={copilotCues}
               isAnalyzing={isCopilotAnalyzing}
               currentTone={copilotTone}
-              className="w-full min-h-[550px]"
+              turns={turns}
+              streamingText={streamingText}
+              className="w-full h-[620px]"
             />
           </div>
 

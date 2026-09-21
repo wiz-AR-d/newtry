@@ -1,0 +1,746 @@
+/* ==========================================================================
+   CLOSEIQ COPILOT EXTENSION DESIGN SYSTEM
+   Imported directly from copilot/packages/ui for 1:1 visual parity
+   ========================================================================== */
+
+/* Host Container */
+.copilot-extension-host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid #27272a;
+  background: #09090b;
+  color: #f8fafc;
+  user-select: none;
+}
+
+.copilot-extension-host.theme-light {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+/* Extension Header Bar */
+.ext-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: #141418;
+  border-bottom: 1px solid #27272a;
+  flex-shrink: 0;
+}
+
+.theme-light .ext-header-bar {
+  background: #ffffff;
+  border-bottom-color: #e2e8f0;
+}
+
+.ext-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ext-brand-logo {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  color: #f8fafc;
+}
+
+.theme-light .ext-brand-logo {
+  color: #0f172a;
+}
+
+.ext-brand-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(124, 58, 237, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.theme-light .ext-brand-badge {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+  border-color: rgba(124, 58, 237, 0.25);
+}
+
+.ext-controls-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Swipe Dots Indicator */
+.ext-view-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  background: #27272a;
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.theme-light .ext-view-dots {
+  background: #f1f5f9;
+}
+
+.ext-dot {
+  height: 6px;
+  border-radius: 3px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.ext-dot.active {
+  width: 14px;
+  background: #a855f7;
+}
+
+.theme-light .ext-dot.active {
+  background: #7c3aed;
+}
+
+.ext-dot.inactive {
+  width: 6px;
+  background: #52525b;
+}
+
+.theme-light .ext-dot.inactive {
+  background: #94a3b8;
+}
+
+/* Theme Toggle Button */
+.ext-theme-btn {
+  background: #27272a;
+  color: #f8fafc;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  padding: 3px 7px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.theme-light .ext-theme-btn {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+/* Status Indicator */
+.ext-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+
+/* ==========================================================================
+   TOP WINDOW: CALL MILESTONES CHECKLIST (.hud-checklist-container)
+   ========================================================================== */
+.hud-checklist-container {
+  display: flex;
+  flex-direction: column;
+  background: #18181f;
+  border-bottom: 1px solid #27272a;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  max-height: 190px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.theme-light .hud-checklist-container {
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.checklist-header {
+  border-bottom: 1px solid #27272a;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
+.theme-light .checklist-header {
+  border-bottom-color: #f1f5f9;
+}
+
+.checklist-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.checklist-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #f8fafc;
+  letter-spacing: 0.2px;
+}
+
+.theme-light .checklist-title {
+  color: #0f172a;
+}
+
+.playbook-badge {
+  font-size: 9px;
+  font-weight: 700;
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  text-transform: uppercase;
+}
+
+.theme-light .playbook-badge {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+  border-color: rgba(124, 58, 237, 0.25);
+}
+
+.checklist-progress-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.checklist-progress-bar {
+  flex: 1;
+  height: 5px;
+  background: #27272a;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.theme-light .checklist-progress-bar {
+  background: #e2e8f0;
+}
+
+.checklist-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  transition: width 0.4s ease;
+}
+
+.checklist-progress-text {
+  font-size: 9.5px;
+  color: #a1a1aa;
+  min-width: 95px;
+  text-align: right;
+  font-weight: 600;
+}
+
+.theme-light .checklist-progress-text {
+  color: #64748b;
+}
+
+.checklist-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.checklist-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.theme-light .checklist-item:hover {
+  background: #f8fafc;
+}
+
+.checklist-checkbox {
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid #52525b;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.5px;
+  background: #18181f;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.theme-light .checklist-checkbox {
+  border-color: #cbd5e1;
+  background: #ffffff;
+}
+
+.checklist-item.completed .checklist-checkbox {
+  background: #059669;
+  border-color: #059669;
+}
+
+.checkmark-icon {
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.checklist-item-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
+  flex: 1;
+}
+
+.checklist-item-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #f1f5f9;
+  transition: color 0.2s ease;
+}
+
+.theme-light .checklist-item-title {
+  color: #334155;
+}
+
+.checklist-item.completed .checklist-item-title {
+  color: #10b981;
+}
+
+.checklist-item-desc {
+  font-size: 9px;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+.theme-light .checklist-item-desc {
+  color: #64748b;
+}
+
+/* ==========================================================================
+   BOTTOM WINDOW: 2-SLIDE SWIPEABLE WINDOW
+   ========================================================================== */
+.copilot-slide-viewport {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Slide 1: Dynamic Cues HUD */
+.hud-suggestions-scroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 14px;
+  overflow-y: auto;
+  position: relative;
+  scrollbar-width: thin;
+}
+
+/* Empty State Radar Pulse */
+.hud-background-canvas {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  margin: auto;
+  padding: 24px;
+  gap: 10px;
+}
+
+.radar-icon-wrapper {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.radar-pulse {
+  position: absolute;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 50%;
+  animation: radarPulse 3s infinite linear;
+  opacity: 0;
+}
+
+.theme-light .radar-pulse {
+  border-color: rgba(124, 58, 237, 0.25);
+}
+
+.ring-1 { width: 40px; height: 40px; animation-delay: 0s; }
+.ring-2 { width: 58px; height: 58px; animation-delay: 1s; }
+.ring-3 { width: 76px; height: 76px; animation-delay: 2s; }
+
+.radar-core {
+  font-size: 24px;
+  background: rgba(168, 85, 247, 0.1);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  z-index: 2;
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.2);
+}
+
+@keyframes radarPulse {
+  0% { transform: scale(0.6); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+.hud-empty-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.theme-light .hud-empty-title {
+  color: #0f172a;
+}
+
+.hud-empty-sub {
+  font-size: 10.5px;
+  color: #a1a1aa;
+  max-width: 250px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.theme-light .hud-empty-sub {
+  color: #64748b;
+}
+
+/* Suggestions Timeline Stack */
+.suggestions-timeline-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.timeline-cue-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #181824;
+  border: 1px solid #333342;
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  transition: all 0.25s ease;
+  animation: cardFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.theme-light .timeline-cue-item {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.timeline-cue-item.focused {
+  background: #1e1b2e;
+  border: 2px solid #a855f7 !important;
+  box-shadow: 0 0 22px rgba(168, 85, 247, 0.35) !important;
+}
+
+.theme-light .timeline-cue-item.focused {
+  border: 2px solid #7c3aed !important;
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.18) !important;
+}
+
+.timeline-cue-item.completed {
+  background: #12241d;
+  border: 2px solid #10b981 !important;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.25) !important;
+}
+
+.theme-light .timeline-cue-item.completed {
+  border-color: #059669 !important;
+  background: rgba(5, 150, 105, 0.03) !important;
+}
+
+@keyframes cardFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.timeline-cue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #27272a;
+  margin-bottom: 6px;
+}
+
+.theme-light .timeline-cue-header {
+  border-bottom-color: #f1f5f9;
+}
+
+.timeline-cue-number {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #c084fc;
+}
+
+.theme-light .timeline-cue-number {
+  color: #7c3aed;
+}
+
+.timeline-cue-query-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #a7f3d0;
+  opacity: 0.9;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 170px;
+}
+
+.theme-light .timeline-cue-query-badge {
+  color: #059669;
+}
+
+.card-bullets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 3px 0;
+}
+
+.bullet-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.bullet-tag-badge {
+  font-size: 8.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #2e1065;
+  color: #c084fc;
+  border: 1px solid #5b21b6;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.theme-light .bullet-tag-badge {
+  background: rgba(124, 58, 237, 0.1);
+  color: #7c3aed;
+  border-color: rgba(124, 58, 237, 0.25);
+}
+
+.timeline-cue-instruction {
+  font-size: 12px;
+  font-weight: 500;
+  color: #f1f5f9;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.theme-light .timeline-cue-instruction {
+  color: #0f172a;
+}
+
+/* Exact Speech Quote Box with 1-Click Copy */
+.card-exact-response-speech {
+  position: relative;
+  margin-top: 6px;
+  padding: 7px 10px;
+  background: #1e1b4b;
+  border-left: 3px solid #a855f7;
+  border-radius: 6px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.theme-light .card-exact-response-speech {
+  background: rgba(124, 58, 237, 0.05);
+  border-left: 3px solid #7c3aed;
+}
+
+.speech-quote-text {
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.4;
+  color: #e9d5ff;
+  margin: 0;
+  text-align: left;
+  flex: 1;
+}
+
+.theme-light .speech-quote-text {
+  color: #5b21b6;
+}
+
+.copy-speech-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #e9d5ff;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.copy-speech-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: scale(1.05);
+}
+
+/* ==========================================================================
+   SLIDE 2: LIVE TRANSCRIPT FEED (.transcript-scroll-area)
+   ========================================================================== */
+.transcript-scroll-area {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scrollbar-width: thin;
+}
+
+.utterance-card-row {
+  display: flex;
+  margin: 3px 0;
+}
+
+.utterance-card-row.align-rep {
+  justify-content: flex-end;
+}
+
+.utterance-card-row.align-customer {
+  justify-content: flex-start;
+}
+
+.utterance-card {
+  padding: 8px 12px;
+  border-radius: 8px;
+  max-width: 85%;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.utterance-card.theme-rep {
+  background: rgba(124, 58, 237, 0.18);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  color: #f8fafc;
+}
+
+.theme-light .utterance-card.theme-rep {
+  background: rgba(124, 58, 237, 0.08);
+  border-color: rgba(124, 58, 237, 0.25);
+  color: #0f172a;
+}
+
+.utterance-card.theme-customer {
+  background: #18181f;
+  border: 1px solid #2d2d35;
+  color: #f8fafc;
+}
+
+.theme-light .utterance-card.theme-customer {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+
+.utterance-card.theme-interim {
+  background: #18181f;
+  border: 1px dashed #52525b;
+  color: #a1a1aa;
+  font-style: italic;
+}
+
+.utt-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 9px;
+  opacity: 0.85;
+  margin-bottom: 3px;
+}
+
+.utt-speaker-label {
+  font-weight: 700;
+}
+
+.theme-rep .utt-speaker-label {
+  color: #c084fc;
+}
+
+.theme-light .theme-rep .utt-speaker-label {
+  color: #7c3aed;
+}
+
+.theme-customer .utt-speaker-label {
+  color: #34d399;
+}
+
+.theme-light .theme-customer .utt-speaker-label {
+  color: #059669;
+}
+
+.utt-timestamp {
+  color: #71717a;
+}
