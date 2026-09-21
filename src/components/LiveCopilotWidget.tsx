@@ -477,15 +477,32 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
                   const ratio = cueCards.length <= 2 ? (myLines / totalLines) : 0.5;
                   const flexValue = cueCards.length <= 2 ? ratio : 1;
 
-                  // Proportional scaling from copilot/packages/ui/src/App.jsx
-                  const baseBulletFont = 12.0 + (ratio * 2.5);
-                  const baseResponseFont = 11.0 + (ratio * 2.0);
-                  const bulletFontSize = `${Math.min(baseBulletFont, 14)}px`;
-                  const responseFontSize = `${Math.min(baseResponseFont, 12.5)}px`;
-                  const bulletGap = `${Math.max(4, Math.round(ratio * 8))}px`;
-                  const cardPad = `${Math.max(6, Math.round(ratio * 12))}px 12px`;
-                  const exactResponseMarginTop = `${Math.max(4, Math.round(ratio * 8))}px`;
-                  const exactResponsePadding = `${Math.max(4, Math.round(ratio * 6))}px ${Math.max(6, Math.round(ratio * 8))}px`;
+                  // Dynamic font scaling to prevent tall cards from overflowing too much
+                  const N = card.bullets ? card.bullets.length : 0;
+                  const responseLen = card.exactResponse ? card.exactResponse.length : 0;
+
+                  let bulletFontSize = '13px';
+                  let responseFontSize = '12px';
+                  let bulletGap = '8px';
+                  let cardPad = '14px 18px';
+                  let exactResponseMarginTop = '10px';
+                  let exactResponsePadding = '8px 10px';
+
+                  if (N >= 5 || (N >= 4 && responseLen > 100)) {
+                    bulletFontSize = '11px';
+                    responseFontSize = '10.5px';
+                    bulletGap = '3px';
+                    cardPad = '8px 12px';
+                    exactResponseMarginTop = '4px';
+                    exactResponsePadding = '4px 6px';
+                  } else if (N >= 3 || responseLen > 120) {
+                    bulletFontSize = '11.5px';
+                    responseFontSize = '11px';
+                    bulletGap = '4px';
+                    cardPad = '10px 14px';
+                    exactResponseMarginTop = '6px';
+                    exactResponsePadding = '6px 8px';
+                  }
 
                   const cardStyle: React.CSSProperties = {
                     height: slotHeight > 0 ? `${slotHeight}px` : 'calc(50% - 5px)',
@@ -522,15 +539,15 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
                         </div>
 
                         {/* Direction Bullets with Tag Badges */}
-                        <div className="card-bullets-list" style={{ gap: bulletGap, flex: 1, justifyContent: 'space-evenly' }}>
+                        <div className="card-bullets-list" style={{ gap: bulletGap, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                           {card.bullets.map(b => (
-                            <div key={b.id} className="bullet-item">
+                            <div key={b.id} className="bullet-item" style={{ marginBottom: bulletGap }}>
                               {b.tag && (
-                                <span className="bullet-tag-badge">
+                                <span className="bullet-tag-badge" style={{ padding: '2px 6px', fontSize: '9px' }}>
                                   {b.tag}
                                 </span>
                               )}
-                              <span className="timeline-cue-instruction" style={{ fontSize: bulletFontSize }}>
+                              <span className="timeline-cue-instruction" style={{ fontSize: bulletFontSize, lineHeight: '1.2' }}>
                                 {b.directionText}
                               </span>
                             </div>

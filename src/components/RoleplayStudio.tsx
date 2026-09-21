@@ -576,7 +576,7 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
               currentTone={copilotTone}
               turns={turns}
               streamingText={streamingText}
-              className="w-full h-[620px]"
+              className="w-full h-[720px]"
             />
           </div>
 
