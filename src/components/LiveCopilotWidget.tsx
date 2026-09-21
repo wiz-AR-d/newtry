@@ -246,6 +246,29 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
     cueCardsRef.current = cueCards;
   }, [cueCards]);
 
+  // Measure container height dynamically to lock exact 2-card viewport sizing
+  const [containerHeight, setContainerHeight] = useState<number>(0);
+
+  useEffect(() => {
+    const container = suggestionsContainerRef.current;
+    if (!container) return;
+    
+    const updateHeight = () => {
+      if (container.clientHeight > 0) {
+        setContainerHeight(container.clientHeight);
+      }
+    };
+    
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [sidepanelTab]);
+
+  const slotHeight = containerHeight > 0 
+    ? (cueCards.length > 1 ? Math.floor((containerHeight - 10) / 2) : containerHeight)
+    : 0;
+
   // triggerFocusOnCard: sets focused card and smooth-scrolls to (cardIndex - 1) * itemHeight
   const triggerFocusOnCard = (cardId: string) => {
     setFocusedCardId(cardId);
@@ -265,7 +288,7 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
       setTimeout(() => {
         isProgrammaticScrollingRef.current = false;
       }, 500);
-    }, 80);
+    }, 50);
   };
 
   // handleSuggestionsScroll: snaps debounced scroll to nearest index and focuses card in Slot 2
@@ -301,22 +324,16 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
         const targetCard = cueCardsRef.current[targetCardIndex];
         setFocusedCardId(targetCard.id);
       }
-    }, 1000);
+    }, 800);
   };
 
-  // Auto-focus and scroll forward when new cue card arrives
-  const prevCardCountRef = useRef(0);
+  // Auto-focus and scroll forward to newest cards on mount, resize, or when cue cards update
   useEffect(() => {
     if (cueCards.length > 0) {
       const latestCard = cueCards[cueCards.length - 1];
-      if (cueCards.length !== prevCardCountRef.current) {
-        prevCardCountRef.current = cueCards.length;
-        triggerFocusOnCard(latestCard.id);
-      } else if (!focusedCardIdRef.current) {
-        setFocusedCardId(latestCard.id);
-      }
+      triggerFocusOnCard(latestCard.id);
     }
-  }, [cueCards]);
+  }, [cueCards.length, containerHeight > 0]);
 
   // Proportional line sizing logic exactly from copilot/packages/ui/src/App.jsx:
   const cardContentLines = cueCards.map(card => {
@@ -470,25 +487,19 @@ export const LiveCopilotWidget: React.FC<LiveCopilotWidgetProps> = ({
                   const exactResponseMarginTop = `${Math.max(4, Math.round(ratio * 8))}px`;
                   const exactResponsePadding = `${Math.max(4, Math.round(ratio * 6))}px ${Math.max(6, Math.round(ratio * 8))}px`;
 
-                  const cardStyle: React.CSSProperties = cueCards.length > 2 
-                    ? {
-                        height: 'calc(50% - 5px)',
-                        minHeight: 'calc(50% - 5px)',
-                        flexShrink: 0,
-                        scrollSnapAlign: 'start',
-                        padding: cardPad,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                      }
-                    : {
-                        flex: flexValue,
-                        minHeight: 0,
-                        padding: cardPad,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                      };
+                  const cardStyle: React.CSSProperties = {
+                    height: slotHeight > 0 ? `${slotHeight}px` : 'calc(50% - 5px)',
+                    minHeight: slotHeight > 0 ? `${slotHeight}px` : 'calc(50% - 5px)',
+                    maxHeight: slotHeight > 0 ? `${slotHeight}px` : 'calc(50% - 5px)',
+                    flexShrink: 0,
+                    scrollSnapAlign: 'start',
+                    boxSizing: 'border-box',
+                    padding: cardPad,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    overflow: 'hidden',
+                  };
 
                   return (
                     <div 
