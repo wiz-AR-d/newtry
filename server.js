@@ -845,15 +845,36 @@ app.post('/api/copilot/cue', async (req, res) => {
     const winningCriteria = deal?.target_persona?.winning_criteria || 'Quantifiable ROI and minimal workflow disruption';
     const mainPainPoint = deal?.pain_points?.[0] || 'Accelerating sales rep ramp time';
 
-    const ragFacts = ragChunks.map(c => c.parent_text).join('\n') || `Primary Pain Point: ${mainPainPoint}.`;
+    // Direct In-Context Dossier Formatting (Guarantees 100% recall of facts & metrics without retrieval loss)
+    const ap = deal?.seller_action_playbook;
+    const structuredDossier = deal ? `
+TARGET REALITY: ${deal.target_company_description || deal.company_summary || ''}
+TECH STACK: ${deal.company_research?.techStack?.join(', ') || 'Enterprise standard'}
+KEY INITIATIVES: ${deal.company_research?.initiatives?.join('; ') || 'Scale revenue'}
+
+ACUTE PAIN POINTS:
+${(deal.pain_points || []).map((pt, i) => `${i+1}. ${pt}`).join('\n')}
+
+VALUE PROPOSITIONS & IMPACT METRICS:
+${(deal.seller_value_propositions || []).map(vp => `• [${vp.title}]: Hook: "${vp.hook}" | Metric: ${vp.impact_metric}`).join('\n')}
+
+KNOWN OBJECTIONS & REBUTTALS:
+${(deal.likely_objections || []).map(o => `• [${(o.category || 'general').toUpperCase()}] "${o.title}" -> REBUTTAL: "${o.suggestedHandling}"`).join('\n')}
+
+PLAYBOOK RULES:
+• What Rep Should Mention: ${(ap?.what_to_mention || []).join('; ')}
+• What Rep Should Do: ${(ap?.what_to_do || []).join('; ')}
+• CRITICAL TO AVOID: ${(ap?.what_to_avoid || []).join('; ')}
+• Key Differentiators: ${(ap?.key_differentiators || []).join('; ')}
+`.trim() : (ragChunks.map(c => c.parent_text).join('\n') || `Primary Pain Point: ${mainPainPoint}.`);
 
     const copilotSystemPrompt = `You are an elite live AI Sales Copilot listening to an active call with ${targetCompany}.
 TARGET BUYER: ${personaName}, ${personaTitle}.
 BUYER SKEPTICISM & WINNING CRITERIA: ${winningCriteria}.
 PRIMARY CLIENT BOTTLENECK: ${mainPainPoint}.
 
-GROUNDED CLIENT DOSSIER & FACTS:
-${ragFacts}
+GROUNDED CLIENT DOSSIER & STRATEGY:
+${structuredDossier}
 ${tavilyContext}
 
 THE CALL TRANSCRIPT JUST HEARD:
@@ -883,11 +904,11 @@ STRICT OUTPUT FORMAT: Output ONLY valid JSON matching this schema:
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
+            model: 'openai/gpt-oss-120b',
             messages: [{ role: 'user', content: copilotSystemPrompt }],
             temperature: 0.1,
             response_format: { type: 'json_object' },
-            max_tokens: 400
+            max_tokens: 800
           }),
         });
 
