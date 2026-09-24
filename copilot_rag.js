@@ -1,4 +1,3 @@
-import { pipeline } from '@xenova/transformers';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -6,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// In-Memory Client Vector Database: deal_id -> Array of { id, text, parent_text, embedding, metadata }
+// In-Memory Client Vector/Text Database: deal_id -> Array of { id, text, parent_text, tokens, metadata }
 const clientVectorStore = new Map();
 const RAG_CACHE_PATH = path.join(__dirname, '.client_rag_cache.json');
 
@@ -23,48 +22,41 @@ if (fs.existsSync(RAG_CACHE_PATH)) {
   }
 }
 
-// Lazy-loaded embedder pipeline
-let embedder = null;
-let embedderPromise = null;
-
-export async function getEmbedder() {
-  if (embedder) return embedder;
-  if (!embedderPromise) {
-    console.log('[Copilot RAG] Initializing local MiniLM embedding model (Xenova/all-MiniLM-L6-v2)...');
-    embedderPromise = pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-      quantized: true,
-      cache_dir: path.join(__dirname, '.cache')
-    }).then(instance => {
-      embedder = instance;
-      console.log('✓ [Copilot RAG] MiniLM embedding model loaded successfully!');
-      return embedder;
-    }).catch(err => {
-      console.error('✗ [Copilot RAG] Failed to load MiniLM model:', err.message);
-      embedderPromise = null;
-      throw err;
-    });
+// Tokenize text into frequency map for zero-memory, instant lexical-semantic matching
+function tokenize(text) {
+  if (!text) return new Map();
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9_\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length > 2);
+  
+  const tf = new Map();
+  for (const word of words) {
+    tf.set(word, (tf.get(word) || 0) + 1);
   }
-  return embedderPromise;
+  return tf;
 }
 
-// Compute Embedding Vector
-export async function getEmbedding(text) {
-  const model = await getEmbedder();
-  const output = await model(text, { pooling: 'mean', normalize: true });
-  return Array.from(output.data);
-}
-
-// Cosine Similarity
-export function cosineSimilarity(vecA, vecB) {
-  if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
+// Fast lexical cosine similarity between token frequency maps
+function tokenSimilarity(tfA, tfB) {
+  if (!tfA || !tfB || tfA.size === 0 || tfB.size === 0) return 0;
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
-  for (let i = 0; i < vecA.length; i++) {
-    dotProduct += vecA[i] * vecB[i];
-    normA += vecA[i] * vecA[i];
-    normB += vecB[i] * vecB[i];
+
+  for (const count of tfA.values()) {
+    normA += count * count;
   }
+  for (const count of tfB.values()) {
+    normB += count * count;
+  }
+
+  for (const [word, countA] of tfA.entries()) {
+    const countB = tfB.get(word) || 0;
+    dotProduct += countA * countB;
+  }
+
   if (normA === 0 || normB === 0) return 0;
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
@@ -117,7 +109,7 @@ export async function ingestDealDossier(dealContext) {
 
   // 3. Value Propositions & Impact Metrics
   if (dealContext.seller_value_propositions && dealContext.seller_value_propositions.length > 0) {
-    dealContext.seller_value_propositions.forEach((vp, idx) => {
+    dealContext.seller_value_propositions.forEach((vp) => {
       rawChunks.push({
         child_text: `Value hook ${vp.title}: ${vp.hook}. Impact metric: ${vp.impact_metric}`,
         parent_text: `WINNING VALUE PROPOSITION: "${vp.title}". Hook to deploy: ${vp.hook}. What to explicitly mention: ${vp.what_to_mention}. Quantifiable ROI Metric: ${vp.impact_metric}.`,
@@ -126,7 +118,7 @@ export async function ingestDealDossier(dealContext) {
     });
   }
 
-  // 4. Likely Objections with Winning Rebuttals (1 chunk per objection for pinpoint accuracy)
+  // 4. Likely Objections with Winning Rebuttals
   if (dealContext.likely_objections && dealContext.likely_objections.length > 0) {
     dealContext.likely_objections.forEach((obj) => {
       rawChunks.push({
@@ -143,7 +135,7 @@ export async function ingestDealDossier(dealContext) {
     });
   }
 
-  // 5. Seller Action Playbook (What to Do, What to Avoid, Key Differentiators)
+  // 5. Seller Action Playbook
   if (dealContext.seller_action_playbook) {
     const ap = dealContext.seller_action_playbook;
     rawChunks.push({
@@ -163,20 +155,15 @@ export async function ingestDealDossier(dealContext) {
     });
   }
 
-  console.log(`[Copilot RAG] Generating vector embeddings for ${rawChunks.length} chunks for deal ${dealId}...`);
-
-  const embeddedChunks = await Promise.all(
-    rawChunks.map(async (chunk, index) => {
-      const embedding = await getEmbedding(chunk.child_text);
-      return {
-        id: `${dealId}_chunk_${index}`,
-        text: chunk.child_text,
-        parent_text: chunk.parent_text,
-        embedding,
-        metadata: chunk.metadata
-      };
-    })
-  );
+  const embeddedChunks = rawChunks.map((chunk, index) => {
+    return {
+      id: `${dealId}_chunk_${index}`,
+      text: chunk.child_text,
+      parent_text: chunk.parent_text,
+      tokens: Array.from(tokenize(`${chunk.child_text} ${chunk.parent_text}`).entries()),
+      metadata: chunk.metadata
+    };
+  });
 
   clientVectorStore.set(dealId, embeddedChunks);
   persistCache();
@@ -200,11 +187,12 @@ export async function queryClientRAG(queryText, dealId, limit = 3) {
     return [];
   }
 
-  const queryEmbedding = await getEmbedding(queryText);
-  const scoreThreshold = 0.35; // Precision cutoff
+  const queryTf = tokenize(queryText);
+  if (queryTf.size === 0) return [];
 
   const scored = chunks.map(chunk => {
-    const score = cosineSimilarity(queryEmbedding, chunk.embedding);
+    const chunkTf = new Map(chunk.tokens);
+    const score = tokenSimilarity(queryTf, chunkTf);
     return {
       text: chunk.text,
       parent_text: chunk.parent_text,
@@ -214,7 +202,7 @@ export async function queryClientRAG(queryText, dealId, limit = 3) {
   });
 
   return scored
-    .filter(item => item.score >= scoreThreshold)
+    .filter(item => item.score > 0.05)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }

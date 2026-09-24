@@ -21,45 +21,6 @@ app.use(express.json({ limit: '10mb' }));
 const dealStore = new Map();
 const sessionStore = new Map();
 
-// --- Speech Emotion Recognition (SER) Pipeline (Lazy Loaded) ---
-let audioClassifier = null;
-let isAudioClassifierLoading = false;
-
-async function getAudioClassifier() {
-  if (audioClassifier) return audioClassifier;
-  if (isAudioClassifierLoading) return null;
-  try {
-    isAudioClassifierLoading = true;
-    console.log('[Copilot SER] Pre-loading local Speech Emotion Recognition model (onnx-community/wav2vec2-base-Speech_Emotion_Recognition-ONNX)...');
-    const { pipeline } = await import('@xenova/transformers');
-    audioClassifier = await pipeline('audio-classification', 'onnx-community/wav2vec2-base-Speech_Emotion_Recognition-ONNX', {
-      quantized: true,
-      cache_dir: path.join(__dirname, '.cache')
-    });
-    console.log('✓ [Copilot SER] Speech Emotion Recognition model loaded successfully!');
-    return audioClassifier;
-  } catch (err) {
-    console.warn('[Copilot SER] Speech emotion model note:', err.message);
-    return null;
-  } finally {
-    isAudioClassifierLoading = false;
-  }
-}
-// Start background pre-load of SER model without blocking startup
-getAudioClassifier().catch(() => {});
-
-function mapEmotionLabel(rawLabel) {
-  const upper = (rawLabel || '').toUpperCase();
-  switch (upper) {
-    case 'NEUTRAL': return 'Calm & Receptive';
-    case 'HAPPY': return 'Engaged & Enthusiastic';
-    case 'ANGRY': return 'Agitated & Challenging';
-    case 'SAD': return 'Hesitant & Guarded';
-    case 'FEAR': return 'Anxious / Risk-Averse';
-    case 'DISGUST': return 'Skeptical & Critical';
-    default: return upper ? upper.charAt(0) + upper.slice(1).toLowerCase() : 'Calm';
-  }
-}
 
 // --- Tavily Search API Client for Real-Time Competitor Intelligence ---
 async function fetchTavilySearch(query) {
