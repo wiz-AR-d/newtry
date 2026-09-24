@@ -73,8 +73,6 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
   const [isOpenPersonaSelector, setIsOpenPersonaSelector] = useState(false);
   const [isOpenCreateModal, setIsOpenCreateModal] = useState(false);
   const [isOpenScorecardModal, setIsOpenScorecardModal] = useState(false);
-  const [isOpenTransitionModal, setIsOpenTransitionModal] = useState(false);
-  const [latestSession, setLatestSession] = useState<RoleplaySession | null>(null);
   const [apiKey] = useState<string>('');
 
   // 5. Live In-Call Copilot State
@@ -441,8 +439,7 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
       console.warn('Failed to save session to backend:', err);
     }
 
-    setLatestSession(sessionData);
-    setIsOpenTransitionModal(true);
+    setIsOpenScorecardModal(true);
   };
 
   const handleOpenScorecard = () => {
@@ -469,24 +466,17 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
             </span>
             <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 text-xs font-mono font-bold bg-blue-950/60 text-blue-400 border border-blue-500/30">
               <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-              LIVE ROLEPLAY SIMULATOR
+              LIVE ROLEPLAY & COPILOT
             </span>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={handleOpenScorecard}
-              className="px-4 py-2 border border-white/[0.1] bg-[#11131a] hover:bg-[#181a24] text-xs font-semibold text-slate-200 hover:text-white transition-all cursor-pointer"
-            >
-              View Scorecard
-            </button>
-            <button
-              type="button"
               onClick={handleCompleteRoleplay}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 px-5 py-2 text-xs sm:text-sm font-bold text-white shadow-md shadow-blue-600/25 transition-all cursor-pointer"
             >
-              <span>Finish Roleplay → Launch Co-Pilot</span>
+              <span>Finish Roleplay & View Scorecard</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -609,63 +599,7 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
 
       </main>
 
-      {/* Roleplay -> Co-Pilot Transition Modal */}
-      {isOpenTransitionModal && latestSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-md">
-          <div className="border border-white/[0.1] bg-[#0c0d12] shadow-2xl p-6 sm:p-8 space-y-6 w-full max-w-lg animate-in fade-in zoom-in-95">
-            <div className="text-center space-y-2">
-              <div className="inline-flex h-12 w-12 items-center justify-center bg-blue-950/50 border border-blue-500/30 text-blue-400 mb-2">
-                <CheckCircle2 className="h-6 w-6" />
-              </div>
-              <h3 className="text-xl font-bold text-white uppercase tracking-wider">Roleplay Session Complete</h3>
-              <p className="text-xs sm:text-sm text-slate-300">You're ready for the real customer conversation.</p>
-            </div>
 
-            {/* Practice Insights Box */}
-            <div className="space-y-3 bg-[#11131a] p-5 border border-white/[0.08] text-xs sm:text-sm">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Key Performance Insights:
-              </div>
-              <div className="space-y-2 text-slate-200">
-                {latestSession.weaknesses.map((w, i) => (
-                  <div key={i} className="flex items-start gap-2 text-rose-300">
-                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-rose-400" />
-                    <span>{w}</span>
-                  </div>
-                ))}
-                {latestSession.strengths.slice(0, 2).map((s, i) => (
-                  <div key={i} className="flex items-start gap-2 text-blue-300">
-                    <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 text-blue-400" />
-                    <span>{s}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Likely Objection to Watch */}
-            <div className="bg-blue-950/30 p-4 border border-blue-500/30 space-y-1.5 text-xs sm:text-sm">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">Top Objection to Watch</span>
-              <p className="text-slate-200 font-semibold italic">"{dealContext?.likely_objections?.[0]?.title || 'We already use existing tooling.'}"</p>
-            </div>
-
-            <p className="text-xs text-slate-400 text-center">
-              CloseIQ will keep these insights in mind during your live call.
-            </p>
-
-            {/* Launch Co-Pilot CTA */}
-            <button
-              onClick={() => {
-                setIsOpenTransitionModal(false);
-                onNavigateToCopilot?.(dealContext?.deal_id || dealId || 'deal_demo', latestSession.session_id);
-              }}
-              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 px-6 py-4 text-sm font-extrabold text-white shadow-xl shadow-blue-600/30 transition-all cursor-pointer hover:scale-[1.01]"
-            >
-              <span>Launch Live Co-Pilot</span>
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Modals */}
       {isOpenPersonaSelector && (

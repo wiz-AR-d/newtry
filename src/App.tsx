@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { DealGenerator } from './components/DealGenerator';
 import { RoleplayStudio } from './components/RoleplayStudio';
-import { LiveCopilot } from './components/LiveCopilot';
 import type { DealContext, RoleplaySession } from './types';
 
 export function App() {
@@ -15,7 +14,7 @@ export function App() {
     return params.get('session_id') || '';
   });
   const [dealContext, setDealContext] = useState<DealContext | null>(null);
-  const [roleplaySession, setRoleplaySession] = useState<RoleplaySession | null>(null);
+  const [, setRoleplaySession] = useState<RoleplaySession | null>(null);
 
   // Sync state with browser location
   useEffect(() => {
@@ -40,32 +39,10 @@ export function App() {
     setCurrentPath('/try/roleplay');
   };
 
-  const navigateToCopilot = (targetDealId: string, targetSessionId: string) => {
-    setDealId(targetDealId);
-    setSessionId(targetSessionId);
-    const newUrl = `/try/roleplay/copilot?deal_id=${encodeURIComponent(targetDealId)}&session_id=${encodeURIComponent(targetSessionId)}`;
-    window.history.pushState(null, '', newUrl);
-    setCurrentPath('/try/roleplay/copilot');
-  };
-
   const navigateToDealPrep = () => {
     window.history.pushState(null, '', '/try');
     setCurrentPath('/try');
   };
-
-  // Route 3: /try/roleplay/copilot
-  if (currentPath.includes('/try/roleplay/copilot')) {
-    return (
-      <LiveCopilot
-        dealId={dealId}
-        sessionId={sessionId}
-        dealContext={dealContext}
-        roleplaySession={roleplaySession}
-        onBackToRoleplay={() => navigateToRoleplay(dealId, dealContext || undefined)}
-        onNewDeal={navigateToDealPrep}
-      />
-    );
-  }
 
   // Route 2: /try/roleplay
   if (currentPath.includes('/try/roleplay')) {
