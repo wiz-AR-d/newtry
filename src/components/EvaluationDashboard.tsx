@@ -8,6 +8,7 @@ interface EvaluationDashboardProps {
   activePersona: Persona;
   isOpenModal: boolean;
   onCloseModal: () => void;
+  onTryNewPersona?: () => void;
 }
 
 export const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({
@@ -15,6 +16,7 @@ export const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({
   activePersona,
   isOpenModal,
   onCloseModal,
+  onTryNewPersona,
 }) => {
   if (!isOpenModal || !scorecard) return null;
 
@@ -152,10 +154,21 @@ export const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="border-t border-white/[0.08] p-4 bg-[#090a0f] flex justify-end">
+        <div className="border-t border-white/[0.08] p-4 bg-[#090a0f] flex items-center justify-between gap-3">
+          {onTryNewPersona && (
+            <button
+              onClick={() => {
+                onCloseModal();
+                onTryNewPersona();
+              }}
+              className="flex items-center gap-2 border border-white/[0.12] bg-[#14161f] hover:bg-[#1c1f2b] text-slate-200 hover:text-white px-5 py-2.5 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+            >
+              <span>← Try New Persona</span>
+            </button>
+          )}
           <button
             onClick={onCloseModal}
-            className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-xs sm:text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition-all cursor-pointer"
+            className="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-xs sm:text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition-all cursor-pointer ml-auto"
           >
             Close Scorecard
           </button>

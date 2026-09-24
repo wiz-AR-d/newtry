@@ -633,6 +633,7 @@ export const RoleplayStudio: React.FC<RoleplayStudioProps> = ({
         activePersona={activePersona}
         isOpenModal={isOpenScorecardModal}
         onCloseModal={() => setIsOpenScorecardModal(false)}
+        onTryNewPersona={onBackToDealPrep}
       />
 
     </div>
